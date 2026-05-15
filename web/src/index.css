@@ -1,0 +1,98 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/geist";
+
+@custom-variant dark (&:is(.dark *));
+
+/* ── Always-dark theme — viewer.html colour palette ────────────── */
+:root {
+  color-scheme: dark;
+
+  --background: #0f1117;
+  --foreground: #e4e6ed;
+  --card: #1a1d27;
+  --card-foreground: #e4e6ed;
+  --popover: #1a1d27;
+  --popover-foreground: #e4e6ed;
+  --primary: #60a5fa;
+  --primary-foreground: #050a15;
+  --secondary: #232733;
+  --secondary-foreground: #e4e6ed;
+  --muted: #232733;
+  --muted-foreground: #9ca3b8;
+  --accent: #232733;
+  --accent-foreground: #e4e6ed;
+  --destructive: #f87171;
+  --border: #2e3345;
+  --input: #2e3345;
+  --ring: #60a5fa;
+  --radius: 0.5rem;
+
+  /* Sidebar tokens */
+  --sidebar: #1a1d27;
+  --sidebar-foreground: #e4e6ed;
+  --sidebar-primary: #60a5fa;
+  --sidebar-primary-foreground: #050a15;
+  --sidebar-accent: #232733;
+  --sidebar-accent-foreground: #e4e6ed;
+  --sidebar-border: #2e3345;
+  --sidebar-ring: #60a5fa;
+
+  /* Semantic review colours */
+  --accept: #34d399;
+  --accept-muted: rgba(52, 211, 153, 0.12);
+  --deny: #f87171;
+  --deny-muted: rgba(248, 113, 113, 0.12);
+  --warn: #fbbf24;
+  --warn-muted: rgba(251, 191, 36, 0.12);
+  --info: #60a5fa;
+  --info-muted: rgba(96, 165, 250, 0.12);
+}
+
+@theme inline {
+  --font-sans: "Geist Variable", system-ui, sans-serif;
+  --font-mono: ui-monospace, "Cascadia Code", "Fira Code", monospace;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+  html {
+    @apply font-sans;
+  }
+}
