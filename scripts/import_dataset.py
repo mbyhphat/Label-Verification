@@ -503,11 +503,12 @@ def validate_plan(
         warnings.append("Export JSON has no samples array; review item offsets/context will be empty.")
     else:
         span_lookup = build_span_lookup(export_spans)
+        span_usage: dict[tuple[str, tuple[Any, ...]], int] = defaultdict(int)
         seen_items = set()
         duplicate_examples = []
         for item in audit_results:
             sample_id = str(item.get("sample_id") or "")
-            span = find_matching_span(item, span_lookup) or {}
+            span = find_matching_span(item, span_lookup, span_usage) or {}
             key = (
                 sample_id,
                 comparable_id(item.get("id")),
@@ -682,6 +683,7 @@ def build_review_rows(
     sample_lookup: dict[str, dict[Any, JsonObject]],
 ) -> tuple[list[JsonObject], list[str]]:
     span_lookup = build_span_lookup(export_spans)
+    span_usage: dict[tuple[str, tuple[Any, ...]], int] = defaultdict(int)
     warnings = []
     missing_spans = 0
     review_rows = []
@@ -693,7 +695,7 @@ def build_review_rows(
                 f"Audit result at index {idx} references missing sample_id {item.get('sample_id')!r}."
             )
 
-        span = find_matching_span(item, span_lookup)
+        span = find_matching_span(item, span_lookup, span_usage)
         if not span:
             missing_spans += 1
             span = {}
@@ -738,6 +740,10 @@ def build_span_lookup(export_spans: list[JsonObject]) -> dict[str, dict[Any, lis
         if ref:
             by_sample_index_id_value[(ref[1], audit_id, value)].append(span)
 
+    for bucket in (by_sample_id_id_value, by_id_value, by_sample_index_id_value):
+        for candidates in bucket.values():
+            candidates.sort(key=span_sort_key)
+
     return {
         "by_sample_id_id_value": by_sample_id_id_value,
         "by_id_value": by_id_value,
@@ -745,25 +751,83 @@ def build_span_lookup(export_spans: list[JsonObject]) -> dict[str, dict[Any, lis
     }
 
 
-def find_matching_span(item: JsonObject, span_lookup: dict[str, dict[Any, list[JsonObject]]]) -> JsonObject | None:
+def span_sort_key(span: JsonObject) -> tuple[int, int, int]:
+    ref = parse_sample_ref(str(span.get("sample_id") or ""))
+    sample_index = ref[1] if ref else sys.maxsize
+    start = int_or_none(span.get("start"))
+    end = int_or_none(span.get("end"))
+    return (
+        sample_index,
+        start if start is not None else sys.maxsize,
+        end if end is not None else sys.maxsize,
+    )
+
+
+def find_matching_span(
+    item: JsonObject,
+    span_lookup: dict[str, dict[Any, list[JsonObject]]],
+    span_usage: dict[tuple[str, tuple[Any, ...]], int] | None = None,
+) -> JsonObject | None:
     sample_id = str(item.get("sample_id") or "")
     audit_id = comparable_id(item.get("id"))
     value = item.get("value")
 
-    candidates = span_lookup["by_sample_id_id_value"].get((sample_id, audit_id, value))
+    key = (sample_id, audit_id, value)
+    candidates = span_lookup["by_sample_id_id_value"].get(key)
     if candidates:
-        return candidates[0]
+        return pick_matching_span(item, candidates, ("by_sample_id_id_value", key), span_usage)
 
     ref = parse_sample_ref(sample_id)
     if ref:
-        candidates = span_lookup["by_sample_index_id_value"].get((ref[1], audit_id, value))
+        key = (ref[1], audit_id, value)
+        candidates = span_lookup["by_sample_index_id_value"].get(key)
         if candidates:
-            return candidates[0]
+            return pick_matching_span(
+                item,
+                candidates,
+                ("by_sample_index_id_value", key),
+                span_usage,
+            )
 
-    candidates = span_lookup["by_id_value"].get((audit_id, value))
+    key = (audit_id, value)
+    candidates = span_lookup["by_id_value"].get(key)
     if candidates:
+        return pick_matching_span(item, candidates, ("by_id_value", key), span_usage)
+
+    return None
+
+
+def pick_matching_span(
+    item: JsonObject,
+    candidates: list[JsonObject],
+    usage_key: tuple[str, tuple[Any, ...]],
+    span_usage: dict[tuple[str, tuple[Any, ...]], int] | None,
+) -> JsonObject | None:
+    item_start = int_or_none(item.get("start"))
+    item_end = int_or_none(item.get("end"))
+    if item_start is not None or item_end is not None:
+        return find_span_by_offset(candidates, item_start, item_end)
+
+    if span_usage is None:
         return candidates[0]
 
+    index = span_usage[usage_key]
+    span_usage[usage_key] += 1
+    if index >= len(candidates):
+        return None
+    return candidates[index]
+
+
+def find_span_by_offset(
+    candidates: list[JsonObject], item_start: int | None, item_end: int | None
+) -> JsonObject | None:
+    for span in candidates:
+        span_start = int_or_none(span.get("start"))
+        span_end = int_or_none(span.get("end"))
+        start_matches = item_start is None or item_start == span_start
+        end_matches = item_end is None or item_end == span_end
+        if start_matches and end_matches:
+            return span
     return None
 
 
