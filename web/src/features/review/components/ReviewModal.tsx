@@ -158,7 +158,7 @@ export function ReviewModal({
   // preventing a brief flash of the previous sample's text during navigation.
   const ctxHtml =
     item && sample && sample.id === item.sample_row_id
-      ? buildHighlightedSourceHtml(sample.current_source_text, item)
+      ? buildHighlightedSourceHtml(sample.current_source_text, item, sample.current_privacy_mask)
       : ''
 
   useEffect(() => {
@@ -328,9 +328,7 @@ export function ReviewModal({
                   className={cn(
                     'rounded-md border border-[#343a4f] p-3 text-[13px] leading-7',
                     'max-h-[200px] overflow-y-auto whitespace-pre-wrap break-words',
-                    '[&_mark]:scroll-m-24 [&_mark]:rounded-[3px] [&_mark]:px-1',
-                    '[&_mark]:py-0.5 [&_mark]:font-semibold [&_mark]:bg-[#fbbf24]',
-                    '[&_mark]:text-[#0f1117] [&_mark]:shadow-[0_0_0_3px_rgba(251,191,36,0.12)]',
+                    'review-source-context',
                   )}
                   style={{ background: '#11141c', color: '#e4e6ed' }}
                   dangerouslySetInnerHTML={{ __html: ctxHtml }}

@@ -67,7 +67,7 @@ export function ReviewDetailPanel({
 
   const highlightedSource = useMemo(() => {
     if (!sample || !item) return ''
-    return buildHighlightedSourceHtml(sample.current_source_text, item)
+    return buildHighlightedSourceHtml(sample.current_source_text, item, sample.current_privacy_mask)
   }, [item, sample])
 
   useEffect(() => {
@@ -124,9 +124,7 @@ export function ReviewDetailPanel({
           className={cn(
             'mx-3 mt-3 rounded-md border border-border/80 bg-background/65 px-3 py-3',
             'max-h-64 overflow-y-auto whitespace-pre-wrap break-words text-sm leading-7 text-foreground',
-            '[&_mark]:scroll-m-24 [&_mark]:rounded-[3px] [&_mark]:bg-[var(--warn)] [&_mark]:px-1',
-            '[&_mark]:py-0.5 [&_mark]:font-semibold [&_mark]:text-background',
-            '[&_mark]:shadow-[0_0_0_3px_rgba(251,191,36,0.12)]',
+            'review-source-context',
           )}
           dangerouslySetInnerHTML={{ __html: highlightedSource }}
         />
