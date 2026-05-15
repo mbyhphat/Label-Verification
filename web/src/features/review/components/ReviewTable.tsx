@@ -1,4 +1,5 @@
 import type { CSSProperties, KeyboardEvent } from 'react'
+import { AlertTriangle, Check, XCircle } from 'lucide-react'
 import type { ReviewItem, ReviewSample } from '@/types/domain'
 
 type ReviewTableProps = {
@@ -9,27 +10,32 @@ type ReviewTableProps = {
   onOpenItem: (item: ReviewItem) => void
 }
 
+type IconComponent = typeof Check
+
 const VERDICT_BADGE: Record<
   string,
-  { bg: string; color: string; border: string; label: string }
+  { bg: string; color: string; border: string; label: string; Icon: IconComponent }
 > = {
   CORRECT: {
     bg: 'rgba(52,211,153,0.12)',
     color: '#34d399',
     border: 'rgba(52,211,153,0.3)',
-    label: '✓ Correct',
+    label: 'Correct',
+    Icon: Check,
   },
   WRONG_LABEL: {
     bg: 'rgba(248,113,113,0.12)',
     color: '#f87171',
     border: 'rgba(248,113,113,0.3)',
-    label: '✗ Wrong',
+    label: 'Wrong',
+    Icon: XCircle,
   },
   UNREALISTIC_VALUE: {
     bg: 'rgba(251,191,36,0.12)',
     color: '#fbbf24',
     border: 'rgba(251,191,36,0.3)',
-    label: '⚠ Unrealistic',
+    label: 'Unrealistic',
+    Icon: AlertTriangle,
   },
 }
 
@@ -41,12 +47,12 @@ function getLockLabel(sample: ReviewSample | undefined, userId: string): string 
 
 function getDecisionLabel(
   decision: string | null | undefined,
-): { label: string; color: string } | null {
+): { label: string; color: string; Icon: IconComponent } | null {
   if (!decision) return null
-  if (decision === 'accept') return { label: '✓ Accepted', color: '#34d399' }
-  if (decision === 'deny_keep') return { label: '✗ Kept', color: '#f87171' }
-  if (decision === 'deny_remove') return { label: '✗ Removed', color: '#f87171' }
-  return { label: '✗ Denied', color: '#f87171' }
+  if (decision === 'accept') return { label: 'Accepted', color: '#34d399', Icon: Check }
+  if (decision === 'deny_keep') return { label: 'Kept', color: '#f87171', Icon: XCircle }
+  if (decision === 'deny_remove') return { label: 'Removed', color: '#f87171', Icon: XCircle }
+  return { label: 'Denied', color: '#f87171', Icon: XCircle }
 }
 
 const TH_STYLE: CSSProperties = {
@@ -113,6 +119,8 @@ export function ReviewTable({
             const badge = VERDICT_BADGE[item.verdict]
             const decisionLabel = getDecisionLabel(item.decision)
             const isActive = activeItemId === item.id
+            const BadgeIcon = badge?.Icon
+            const DecisionIcon = decisionLabel?.Icon
 
             // Row background based on decision + active state
             const rowBg = isActive
@@ -203,7 +211,9 @@ export function ReviewTable({
                   {badge && (
                     <span
                       style={{
-                        display: 'inline-block',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
                         padding: '2px 8px',
                         borderRadius: '10px',
                         fontSize: '10px',
@@ -215,6 +225,7 @@ export function ReviewTable({
                         border: `1px solid ${badge.border}`,
                       }}
                     >
+                      {BadgeIcon && <BadgeIcon aria-hidden="true" className="h-3 w-3" />}
                       {badge.label}
                     </span>
                   )}
@@ -225,6 +236,9 @@ export function ReviewTable({
                   {decisionLabel ? (
                     <span
                       style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
                         fontSize: '10px',
                         fontWeight: 600,
                         textTransform: 'uppercase',
@@ -232,6 +246,9 @@ export function ReviewTable({
                         color: decisionLabel.color,
                       }}
                     >
+                      {DecisionIcon && (
+                        <DecisionIcon aria-hidden="true" className="h-3 w-3" />
+                      )}
                       {decisionLabel.label}
                     </span>
                   ) : (

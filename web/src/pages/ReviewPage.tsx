@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
-import { LogOut, Search, ShieldCheck } from 'lucide-react'
+import { AlertTriangle, Check, LogOut, Search, ShieldCheck, XCircle } from 'lucide-react'
 import { DatasetSidebar } from '@/features/review/components/DatasetSidebar'
 import { ExportButton } from '@/features/review/components/ExportButton'
 import { ReviewModal } from '@/features/review/components/ReviewModal'
@@ -183,11 +183,20 @@ export function ReviewPage({ session, onSignOut }: ReviewPageProps) {
               <span style={{ color: '#2e3345' }}>│</span>
               <span style={{ color: '#60a5fa' }}>{verdictCounts.total} total</span>
               <span style={{ color: '#2e3345' }}>·</span>
-              <span style={{ color: '#34d399' }}>✓ {verdictCounts.correct}</span>
+              <span className="inline-flex items-center gap-1" style={{ color: '#34d399' }}>
+                <Check aria-hidden="true" className="h-3 w-3" />
+                {verdictCounts.correct}
+              </span>
               <span style={{ color: '#2e3345' }}>·</span>
-              <span style={{ color: '#f87171' }}>✗ {verdictCounts.wrong}</span>
+              <span className="inline-flex items-center gap-1" style={{ color: '#f87171' }}>
+                <XCircle aria-hidden="true" className="h-3 w-3" />
+                {verdictCounts.wrong}
+              </span>
               <span style={{ color: '#2e3345' }}>·</span>
-              <span style={{ color: '#fbbf24' }}>⚠ {verdictCounts.unrealistic}</span>
+              <span className="inline-flex items-center gap-1" style={{ color: '#fbbf24' }}>
+                <AlertTriangle aria-hidden="true" className="h-3 w-3" />
+                {verdictCounts.unrealistic}
+              </span>
               <span style={{ color: '#2e3345' }}>·</span>
               <span style={{ color: '#9ca3b8' }}>
                 {stats.completed}/{stats.total} reviewed

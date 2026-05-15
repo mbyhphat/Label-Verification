@@ -29,19 +29,22 @@ const VERDICT_STYLE = {
     bg: 'rgba(52,211,153,0.12)',
     color: '#34d399',
     border: 'rgba(52,211,153,0.3)',
-    label: '✓ Correct',
+    label: 'Correct',
+    Icon: Check,
   },
   WRONG_LABEL: {
     bg: 'rgba(248,113,113,0.12)',
     color: '#f87171',
     border: 'rgba(248,113,113,0.3)',
-    label: '✗ Wrong Label',
+    label: 'Wrong Label',
+    Icon: XCircle,
   },
   UNREALISTIC_VALUE: {
     bg: 'rgba(251,191,36,0.12)',
     color: '#fbbf24',
     border: 'rgba(251,191,36,0.3)',
-    label: '⚠ Unrealistic',
+    label: 'Unrealistic',
+    Icon: AlertTriangle,
   },
 } as const
 
@@ -150,6 +153,7 @@ export function ReviewModal({
   }, [canAct, item, sample, reviewerNote, acquiringLock, onClose, onNext, onPrev, onSubmit])
 
   const verdictStyle = item ? VERDICT_STYLE[item.verdict as keyof typeof VERDICT_STYLE] : null
+  const VerdictIcon = verdictStyle?.Icon ?? null
   // Only render source context when the loaded sample actually belongs to the active item,
   // preventing a brief flash of the previous sample's text during navigation.
   const ctxHtml =
@@ -260,13 +264,14 @@ export function ReviewModal({
               <span>
                 {verdictStyle && (
                   <span
-                    className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider"
+                    className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider"
                     style={{
                       background: verdictStyle.bg,
                       color: verdictStyle.color,
                       border: `1px solid ${verdictStyle.border}`,
                     }}
                   >
+                    {VerdictIcon && <VerdictIcon aria-hidden="true" className="h-3 w-3" />}
                     {verdictStyle.label}
                   </span>
                 )}
@@ -462,7 +467,7 @@ export function ReviewModal({
                       opacity: 0.7,
                     }}
                   >
-                    ⌫
+                    Backspace
                   </kbd>
                 )}
               </button>
@@ -489,10 +494,7 @@ export function ReviewModal({
                   className="ml-auto text-[11px] flex items-center gap-1.5"
                   style={{ color: '#60a5fa' }}
                 >
-                  <span
-                    className="inline-block h-3 w-3 animate-spin rounded-full border border-current"
-                    style={{ borderTopColor: 'transparent' }}
-                  />
+                  <LoaderCircle aria-hidden="true" className="h-3 w-3 animate-spin" />
                   Acquiring lock…
                 </span>
               )}
