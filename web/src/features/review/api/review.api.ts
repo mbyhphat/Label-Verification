@@ -136,6 +136,22 @@ export async function submitReviewDecision(args: SubmitDecisionArgs): Promise<Js
   return data
 }
 
+export async function updateReviewSampleMask(args: {
+  sample: ReviewSample
+  sourceText: string
+  privacyMask: PrivacyMaskEntry[]
+}): Promise<ReviewSample> {
+  const { data, error } = await supabase.rpc('update_review_sample_mask', {
+    p_sample_id: args.sample.id,
+    p_sample_version: args.sample.version,
+    p_new_privacy_mask: args.privacyMask as Json,
+    p_new_source_text: args.sourceText,
+  })
+
+  if (error) throw error
+  return data
+}
+
 export async function exportReviewedDataset(datasetId: string): Promise<JsonRecord[]> {
   // Paginate to avoid the default PostgREST 1000-row cap
   const rows: ReviewSample[] = []

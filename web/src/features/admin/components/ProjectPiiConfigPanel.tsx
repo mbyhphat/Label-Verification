@@ -175,7 +175,7 @@ export function ProjectPiiConfigPanel({ projectId }: ProjectPiiConfigPanelProps)
             Required PII classes
           </p>
           <h2 className="mt-1 text-base font-semibold text-foreground">
-            {selected.size}/{config?.catalog.length ?? 0} selected
+            {selected.size}/{catalog.length} selected
           </h2>
           {config?.updated_at && (
             <p className="mt-1 text-xs text-muted-foreground">

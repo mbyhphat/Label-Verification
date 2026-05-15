@@ -99,6 +99,15 @@ export type Database = {
         }
         Returns: Json
       }
+      update_review_sample_mask: {
+        Args: {
+          p_sample_id: string
+          p_sample_version: number
+          p_new_privacy_mask: Json
+          p_new_source_text?: string | null
+        }
+        Returns: ReviewSample
+      }
       create_project: {
         Args: {
           p_slug: string

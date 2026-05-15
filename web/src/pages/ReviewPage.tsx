@@ -1,13 +1,14 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { AlertTriangle, Check, Search, XCircle } from 'lucide-react'
 import { AppHeader } from '@/components/AppHeader'
+import { getProjectPiiConfig } from '@/features/admin/api/pii-config.api'
 import { DatasetSidebar } from '@/features/review/components/DatasetSidebar'
 import { ExportButton } from '@/features/review/components/ExportButton'
 import { ReviewModal } from '@/features/review/components/ReviewModal'
 import { ReviewTable } from '@/features/review/components/ReviewTable'
 import { useReviewWorkspace } from '@/features/review/hooks/useReviewWorkspace'
-import type { ReviewDecision, ReviewItem, ReviewSample } from '@/types/domain'
+import type { PrivacyMaskEntry, ReviewDecision, ReviewItem, ReviewSample } from '@/types/domain'
 import {
   Select,
   SelectContent,
@@ -53,6 +54,7 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
     selectEntityType,
     openItem,
     submitDecision,
+    saveSampleMask,
     releaseLock,
   } = useReviewWorkspace(session)
 
@@ -60,6 +62,71 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
   const [verdictFilter, setVerdictFilter] = useState<VerdictFilter>('ALL')
   const [searchQuery, setSearchQuery] = useState('')
   const [modalItemId, setModalItemId] = useState<string | null>(null)
+  const [configuredEntityTypes, setConfiguredEntityTypes] = useState<{
+    projectId: string
+    labels: string[]
+  } | null>(null)
+  const activeProjectId = activeDataset?.project_id ?? null
+
+  const loadProjectLabels = useCallback(async (projectId: string) => {
+    try {
+      const config = await getProjectPiiConfig(projectId)
+      setConfiguredEntityTypes({
+        projectId,
+        labels: config.required_entity_types,
+      })
+    } catch {
+      setConfiguredEntityTypes({
+        projectId,
+        labels: [],
+      })
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    const projectId = activeProjectId
+
+    async function loadCurrentProjectLabels(projectId: string) {
+      try {
+        const config = await getProjectPiiConfig(projectId)
+        if (!cancelled) {
+          setConfiguredEntityTypes({
+            projectId,
+            labels: config.required_entity_types,
+          })
+        }
+      } catch {
+        if (!cancelled) {
+          setConfiguredEntityTypes({
+            projectId,
+            labels: [],
+          })
+        }
+      }
+    }
+
+    if (projectId) void loadCurrentProjectLabels(projectId)
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeProjectId])
+
+  useEffect(() => {
+    const projectId = activeProjectId
+    if (!projectId) return
+    const currentProjectId = projectId
+
+    function refreshLabelsOnFocus() {
+      void loadProjectLabels(currentProjectId)
+    }
+
+    window.addEventListener('focus', refreshLabelsOnFocus)
+    return () => {
+      window.removeEventListener('focus', refreshLabelsOnFocus)
+    }
+  }, [activeProjectId, loadProjectLabels])
 
   // ── Derived state ──────────────────────────────────────────────
   const filteredItems = useMemo(() => {
@@ -96,13 +163,43 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
     [modalItemId, filteredItems],
   )
 
+  const labelOptions = useMemo(() => {
+    const seen = new Set<string>()
+    const labels: string[] = []
+    const configuredLabels =
+      configuredEntityTypes && configuredEntityTypes.projectId === activeDataset?.project_id
+        ? configuredEntityTypes.labels
+        : []
+    const addLabel = (label: string | null | undefined) => {
+      if (!label || seen.has(label)) return
+      seen.add(label)
+      labels.push(label)
+    }
+
+    for (const label of configuredLabels) addLabel(label)
+    for (const label of entityTypes) addLabel(label)
+    for (const entry of activeSample?.current_privacy_mask ?? []) {
+      addLabel(entry.label)
+    }
+
+    return labels
+  }, [
+    activeDataset?.project_id,
+    activeSample?.current_privacy_mask,
+    configuredEntityTypes,
+    entityTypes,
+  ])
+
   // ── Navigation helper ──────────────────────────────────────────
   const navigateToItem = useCallback(
     async (item: ReviewItem) => {
       setModalItemId(item.id)
-      await openItem(item)
+      await Promise.all([
+        openItem(item),
+        activeProjectId ? loadProjectLabels(activeProjectId) : Promise.resolve(),
+      ])
     },
-    [openItem],
+    [activeProjectId, loadProjectLabels, openItem],
   )
 
   const handleOpenItem = useCallback(
@@ -154,6 +251,13 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
       }
     },
     [filteredItems, submitDecision, navigateToItem],
+  )
+
+  const handleModalSaveSampleMask = useCallback(
+    async (sample: ReviewSample, sourceText: string, privacyMask: PrivacyMaskEntry[]) => {
+      await saveSampleMask(sample, sourceText, privacyMask)
+    },
+    [saveSampleMask],
   )
 
   const headerStats =
@@ -366,10 +470,12 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
           saving={saving}
           acquiringLock={acquiringLock}
           currentUserId={session.user.id}
+          labelOptions={labelOptions}
           onPrev={handleModalPrev}
           onNext={handleModalNext}
           onClose={handleCloseModal}
           onSubmit={handleModalSubmit}
+          onSaveSampleMask={handleModalSaveSampleMask}
         />
       )}
     </div>

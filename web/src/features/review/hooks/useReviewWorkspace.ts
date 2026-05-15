@@ -1,13 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { formatSupabaseError } from '@/lib/supabase/errors'
-import type { Dataset, ReviewDecision, ReviewItem, ReviewSample } from '@/types/domain'
+import type {
+  Dataset,
+  PrivacyMaskEntry,
+  ReviewDecision,
+  ReviewItem,
+  ReviewSample,
+} from '@/types/domain'
 import {
   acquireSampleLock,
   openSample,
   listReviewItems,
   releaseSampleLock,
   submitReviewDecision,
+  updateReviewSampleMask,
 } from '../api/review.api'
 
 function isLockValid(sample: ReviewSample | null, userId: string): boolean {
@@ -50,6 +57,11 @@ export type ReviewWorkspaceState = {
     sample: ReviewSample,
     decision: ReviewDecision,
     reviewerNote: string,
+  ) => Promise<void>
+  saveSampleMask: (
+    sample: ReviewSample,
+    sourceText: string,
+    privacyMask: PrivacyMaskEntry[],
   ) => Promise<void>
   releaseLock: (sampleId: string) => Promise<void>
 }
@@ -291,6 +303,25 @@ export function useReviewWorkspace(session: Session): ReviewWorkspaceState {
     [activeDataset, loadItems],
   )
 
+  const saveSampleMask = useCallback(
+    async (sample: ReviewSample, sourceText: string, privacyMask: PrivacyMaskEntry[]) => {
+      setSaving(true)
+      setNotice('')
+      try {
+        const updated = await updateReviewSampleMask({ sample, sourceText, privacyMask })
+        setSamplesById((prev) => new Map(prev).set(updated.id, updated))
+        setActiveSample((prev) => (prev?.id === updated.id ? updated : prev))
+        setNotice('Sample text and labels updated.')
+      } catch (err) {
+        setNotice(formatSupabaseError(err))
+        throw err
+      } finally {
+        setSaving(false)
+      }
+    },
+    [],
+  )
+
   return {
     datasets,
     activeDataset,
@@ -310,6 +341,7 @@ export function useReviewWorkspace(session: Session): ReviewWorkspaceState {
     selectEntityType,
     openItem,
     submitDecision,
+    saveSampleMask,
     releaseLock: releaseSampleLock,
   }
 }

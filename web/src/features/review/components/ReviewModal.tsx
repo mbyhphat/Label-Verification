@@ -4,17 +4,19 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  Edit3,
   FileText,
   LoaderCircle,
   X,
   XCircle,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import type { ReviewDecision, ReviewItem, ReviewSample } from '@/types/domain'
+import type { PrivacyMaskEntry, ReviewDecision, ReviewItem, ReviewSample } from '@/types/domain'
 import {
   buildHighlightedSourceHtml,
   scrollHighlightedTextIntoView,
 } from '../utils/highlight-source'
+import { SampleMaskEditor } from './SampleMaskEditor'
 
 function isOwnLock(sample: ReviewSample | null, userId: string): boolean {
   if (!sample?.locked_by || !sample.locked_until) return false
@@ -56,6 +58,7 @@ interface ReviewModalProps {
   saving: boolean
   acquiringLock: boolean
   currentUserId: string
+  labelOptions: string[]
   onPrev: () => void
   onNext: () => void
   onClose: () => void
@@ -64,6 +67,11 @@ interface ReviewModalProps {
     sample: ReviewSample,
     decision: ReviewDecision,
     note: string,
+  ) => Promise<void>
+  onSaveSampleMask: (
+    sample: ReviewSample,
+    sourceText: string,
+    privacyMask: PrivacyMaskEntry[],
   ) => Promise<void>
 }
 
@@ -75,13 +83,16 @@ export function ReviewModal({
   saving,
   acquiringLock,
   currentUserId,
+  labelOptions,
   onPrev,
   onNext,
   onClose,
   onSubmit,
+  onSaveSampleMask,
 }: ReviewModalProps) {
   const [reviewerNote, setReviewerNote] = useState('')
   const [showSubDialog, setShowSubDialog] = useState(false)
+  const [showMaskEditor, setShowMaskEditor] = useState(false)
   const sourceContextRef = useRef<HTMLDivElement>(null)
 
   const hasLock = isOwnLock(sample, currentUserId)
@@ -92,6 +103,7 @@ export function ReviewModal({
     const frame = window.requestAnimationFrame(() => {
       setReviewerNote('')
       setShowSubDialog(false)
+      setShowMaskEditor(false)
     })
 
     return () => window.cancelAnimationFrame(frame)
@@ -316,12 +328,24 @@ export function ReviewModal({
             {/* ── Source context ── */}
             {ctxHtml ? (
               <div className="mb-5">
-                <div
-                  className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider"
-                  style={{ color: '#60a5fa' }}
-                >
-                  <FileText aria-hidden="true" className="h-3.5 w-3.5" />
-                  Source Context
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <div
+                    className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider"
+                    style={{ color: '#60a5fa' }}
+                  >
+                    <FileText aria-hidden="true" className="h-3.5 w-3.5" />
+                    Source Context
+                  </div>
+                  <button
+                    type="button"
+                    disabled={!hasLock || acquiringLock}
+                    onClick={() => setShowMaskEditor((value) => !value)}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-[#2e3345] bg-[#232733] px-2 py-1 text-[11px] font-medium text-[#e4e6ed] transition-[background-color,border-color,color,opacity] hover:border-[#60a5fa] hover:text-white disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-[#2e3345] disabled:hover:text-[#e4e6ed] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#60a5fa]"
+                    aria-expanded={showMaskEditor}
+                  >
+                    <Edit3 aria-hidden="true" className="h-3 w-3" />
+                    {showMaskEditor ? 'Close editor' : 'Edit labels'}
+                  </button>
                 </div>
                 <div
                   ref={sourceContextRef}
@@ -349,6 +373,18 @@ export function ReviewModal({
               >
                 Context not available
               </div>
+            )}
+
+            {showMaskEditor && sample && sample.id === item.sample_row_id && (
+              <SampleMaskEditor
+                key={`${sample.id}:${sample.version}`}
+                sample={sample}
+                labelOptions={labelOptions}
+                saving={saving}
+                canEdit={hasLock && !acquiringLock}
+                onClose={() => setShowMaskEditor(false)}
+                onSave={onSaveSampleMask}
+              />
             )}
 
             {/* ── Reviewer note ── */}
