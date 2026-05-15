@@ -8,6 +8,47 @@ export type Json =
 
 export type ProjectRole = 'owner' | 'admin' | 'reviewer' | 'viewer'
 
+export type LabelingProject = {
+  id: string
+  slug: string
+  name: string
+  description: string | null
+  created_by: string | null
+  created_at: string
+  archived_at: string | null
+}
+
+export type ProjectMember = {
+  project_id: string
+  user_id: string
+  role: ProjectRole
+  created_at: string
+}
+
+export type PiiEntityType = {
+  entity_type: string
+  sort_order: number
+  created_at: string
+}
+
+export type ProjectPiiConfig = {
+  project_id: string
+  required_entity_types: string[]
+  created_by: string | null
+  updated_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type ProjectPiiConfigResponse = {
+  project_id: string
+  catalog: Array<Pick<PiiEntityType, 'entity_type' | 'sort_order'>>
+  required_entity_types: string[]
+  required_entity_count: number
+  is_default: boolean
+  updated_at: string | null
+}
+
 export type Dataset = {
   id: string
   project_id: string
@@ -16,6 +57,7 @@ export type Dataset = {
   language: string
   folder: string | null
   metadata: Json
+  created_by: string | null
   created_at: string
 }
 
@@ -99,4 +141,69 @@ export type SubmitDecisionInput = {
   reviewerNote: string
   newSourceText: string
   newPrivacyMask: PrivacyMaskEntry[]
+}
+
+export type ImportManifest = {
+  schema_version?: number
+  dataset?: {
+    source_key?: string
+    language?: string
+    folder?: string | null
+    sample_key_prefix?: string
+  }
+  files?: Json
+  [key: string]: Json | undefined
+}
+
+export type ImportValidationIssue = {
+  level: 'error' | 'warning'
+  message: string
+}
+
+export type ImportEntitySummary = {
+  entity_type: string
+  audit_count: number
+  export_span_count: number
+  review_item_count: number
+  audit_sha256?: string
+  export_sha256?: string
+}
+
+export type ImportFolder = {
+  rootName: string
+  manifest: ImportManifest | null
+  sourceKey: string | null
+  language: string | null
+  folder: string | null
+  sampleKeyPrefix: string | null
+  sampleCount: number
+  samplesSha256: string | null
+  entities: ImportEntitySummary[]
+  files: Array<{
+    path: string
+    size: number
+    file: File
+  }>
+  issues: ImportValidationIssue[]
+}
+
+export type ImportResultEntity = {
+  entity_type: string
+  deleted_review_items: number
+  inserted_review_items: number
+  payload_review_items: number
+  replaced: boolean
+}
+
+export type ImportResult = {
+  dataset_id: string
+  dataset_created: boolean
+  sample_count: number
+  entities: ImportResultEntity[]
+  warnings: string[]
+}
+
+export type ExistingDatasetCheck = {
+  dataset: Dataset | null
+  existingEntityTypes: string[]
 }

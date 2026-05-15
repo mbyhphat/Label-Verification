@@ -1,8 +1,44 @@
-import type { AuditEvent, Dataset, Json, ReviewBundle, ReviewItem, ReviewSample } from './domain'
+import type {
+  AuditEvent,
+  Dataset,
+  Json,
+  LabelingProject,
+  PiiEntityType,
+  ProjectPiiConfig,
+  ProjectPiiConfigResponse,
+  ProjectMember,
+  ReviewBundle,
+  ReviewItem,
+  ReviewSample,
+} from './domain'
 
 export type Database = {
   public: {
     Tables: {
+      labeling_projects: {
+        Row: LabelingProject
+        Insert: Partial<LabelingProject>
+        Update: Partial<LabelingProject>
+        Relationships: []
+      }
+      project_members: {
+        Row: ProjectMember
+        Insert: Partial<ProjectMember>
+        Update: Partial<ProjectMember>
+        Relationships: []
+      }
+      pii_entity_types: {
+        Row: PiiEntityType
+        Insert: Partial<PiiEntityType>
+        Update: Partial<PiiEntityType>
+        Relationships: []
+      }
+      project_pii_configs: {
+        Row: ProjectPiiConfig
+        Insert: Partial<ProjectPiiConfig>
+        Update: Partial<ProjectPiiConfig>
+        Relationships: []
+      }
       datasets: {
         Row: Dataset
         Insert: Partial<Dataset>
@@ -63,10 +99,50 @@ export type Database = {
         }
         Returns: Json
       }
+      create_project: {
+        Args: {
+          p_slug: string
+          p_name: string
+          p_description?: string | null
+        }
+        Returns: LabelingProject
+      }
+      import_dataset_payload: {
+        Args: {
+          p_project_id: string
+          p_manifest: Json
+          p_samples: Json
+          p_entities: Json
+          p_replace?: boolean
+        }
+        Returns: Json
+      }
+      get_project_pii_config: {
+        Args: {
+          p_project_id: string
+        }
+        Returns: ProjectPiiConfigResponse
+      }
+      update_project_pii_config: {
+        Args: {
+          p_project_id: string
+          p_required_entity_types: string[]
+        }
+        Returns: ProjectPiiConfigResponse
+      }
     }
     Enums: Record<string, never>
     CompositeTypes: Record<string, never>
   }
 }
 
-export type { AuditEvent, Dataset, ReviewItem, ReviewSample }
+export type {
+  AuditEvent,
+  Dataset,
+  LabelingProject,
+  PiiEntityType,
+  ProjectMember,
+  ProjectPiiConfig,
+  ReviewItem,
+  ReviewSample,
+}

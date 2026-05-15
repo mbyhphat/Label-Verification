@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
-import { AlertTriangle, Check, LogOut, Search, ShieldCheck, XCircle } from 'lucide-react'
+import { AlertTriangle, Check, Search, XCircle } from 'lucide-react'
+import { AppHeader } from '@/components/AppHeader'
 import { DatasetSidebar } from '@/features/review/components/DatasetSidebar'
 import { ExportButton } from '@/features/review/components/ExportButton'
 import { ReviewModal } from '@/features/review/components/ReviewModal'
@@ -18,6 +19,7 @@ import {
 type ReviewPageProps = {
   session: Session
   onSignOut: () => void
+  canShowAdmin: boolean
 }
 
 const ALL_ENTITY_TYPES = '__all__'
@@ -31,7 +33,7 @@ const VERDICT_PILLS: { value: VerdictFilter; label: string }[] = [
   { value: 'UNREALISTIC_VALUE', label: 'Unrealistic' },
 ]
 
-export function ReviewPage({ session, onSignOut }: ReviewPageProps) {
+export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps) {
   const {
     datasets,
     activeDataset,
@@ -154,70 +156,48 @@ export function ReviewPage({ session, onSignOut }: ReviewPageProps) {
     [filteredItems, submitDecision, navigateToItem],
   )
 
+  const headerStats =
+    !loadingItems && items.length > 0 ? (
+      <div
+        className="hidden items-center gap-2 overflow-hidden text-[12px] sm:flex"
+        style={{ fontVariantNumeric: 'tabular-nums' }}
+      >
+        <span style={{ color: '#2e3345' }}>│</span>
+        <span style={{ color: '#60a5fa' }}>{verdictCounts.total} total</span>
+        <span style={{ color: '#2e3345' }}>·</span>
+        <span className="inline-flex items-center gap-1" style={{ color: '#34d399' }}>
+          <Check aria-hidden="true" className="h-3 w-3" />
+          {verdictCounts.correct}
+        </span>
+        <span style={{ color: '#2e3345' }}>·</span>
+        <span className="inline-flex items-center gap-1" style={{ color: '#f87171' }}>
+          <XCircle aria-hidden="true" className="h-3 w-3" />
+          {verdictCounts.wrong}
+        </span>
+        <span style={{ color: '#2e3345' }}>·</span>
+        <span className="inline-flex items-center gap-1" style={{ color: '#fbbf24' }}>
+          <AlertTriangle aria-hidden="true" className="h-3 w-3" />
+          {verdictCounts.unrealistic}
+        </span>
+        <span style={{ color: '#2e3345' }}>·</span>
+        <span style={{ color: '#9ca3b8' }}>
+          {stats.completed}/{stats.total} reviewed
+        </span>
+      </div>
+    ) : null
+
   // ── Render ────────────────────────────────────────────────────
   return (
     <div
       className="flex flex-col h-svh"
       style={{ background: '#0f1117', color: '#e4e6ed' }}
     >
-      {/* ── Header ── */}
-      <header
-        className="flex items-center justify-between px-5 shrink-0 gap-4"
-        style={{ height: '52px', background: '#1a1d27', borderBottom: '1px solid #2e3345' }}
-      >
-        {/* Left: title + inline stats */}
-        <div className="flex items-center gap-3 min-w-0 overflow-hidden">
-          <span
-            className="inline-flex shrink-0 items-center gap-2 text-[14px] font-bold"
-            style={{ color: '#e4e6ed' }}
-          >
-            <ShieldCheck aria-hidden="true" className="h-4 w-4 text-[#60a5fa]" />
-            PII Verification
-          </span>
-
-          {!loadingItems && items.length > 0 && (
-            <div
-              className="hidden sm:flex items-center gap-2 text-[12px] overflow-hidden"
-              style={{ fontVariantNumeric: 'tabular-nums' }}
-            >
-              <span style={{ color: '#2e3345' }}>│</span>
-              <span style={{ color: '#60a5fa' }}>{verdictCounts.total} total</span>
-              <span style={{ color: '#2e3345' }}>·</span>
-              <span className="inline-flex items-center gap-1" style={{ color: '#34d399' }}>
-                <Check aria-hidden="true" className="h-3 w-3" />
-                {verdictCounts.correct}
-              </span>
-              <span style={{ color: '#2e3345' }}>·</span>
-              <span className="inline-flex items-center gap-1" style={{ color: '#f87171' }}>
-                <XCircle aria-hidden="true" className="h-3 w-3" />
-                {verdictCounts.wrong}
-              </span>
-              <span style={{ color: '#2e3345' }}>·</span>
-              <span className="inline-flex items-center gap-1" style={{ color: '#fbbf24' }}>
-                <AlertTriangle aria-hidden="true" className="h-3 w-3" />
-                {verdictCounts.unrealistic}
-              </span>
-              <span style={{ color: '#2e3345' }}>·</span>
-              <span style={{ color: '#9ca3b8' }}>
-                {stats.completed}/{stats.total} reviewed
-              </span>
-            </div>
-          )}
-        </div>
-
-        {/* Right: export + sign out */}
-        <div className="flex items-center gap-2 shrink-0">
-          <ExportButton dataset={activeDataset} />
-          <button
-            type="button"
-            onClick={onSignOut}
-            className="inline-flex items-center gap-1.5 rounded-md border border-transparent px-3 py-1.5 text-[12px] text-[#9ca3b8] transition-[background-color,border-color,color] hover:border-[#2e3345] hover:bg-[#232733] hover:text-[#e4e6ed] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#60a5fa]"
-          >
-            <LogOut aria-hidden="true" className="h-3.5 w-3.5" />
-            Sign out
-          </button>
-        </div>
-      </header>
+      <AppHeader
+        canShowAdmin={canShowAdmin}
+        onSignOut={onSignOut}
+        stats={headerStats}
+        actions={<ExportButton dataset={activeDataset} />}
+      />
 
       {/* ── Body ── */}
       <div className="flex flex-1 overflow-hidden">

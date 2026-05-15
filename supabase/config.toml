@@ -1,0 +1,4 @@
+project_id = "pii-verification"
+
+[functions.import-dataset]
+verify_jwt = true

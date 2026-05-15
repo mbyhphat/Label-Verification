@@ -1,10 +1,14 @@
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { AdminPage } from '@/pages/AdminPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { ReviewPage } from '@/pages/ReviewPage'
+import { useProjectMemberships } from '@/hooks/useProjectMemberships'
 import { useSession } from '@/hooks/useSession'
 import { supabaseConfig } from '@/lib/supabase/client'
 
 function App() {
   const { session, loading, signOut } = useSession()
+  const memberships = useProjectMemberships(session)
 
   if (!supabaseConfig.isConfigured) {
     return (
@@ -47,10 +51,67 @@ function App() {
   }
 
   if (!session) {
-    return <LoginPage />
+    return (
+      <BrowserRouter>
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="*" element={<Navigate to="/login" replace />} />
+        </Routes>
+      </BrowserRouter>
+    )
   }
 
-  return <ReviewPage session={session} onSignOut={signOut} />
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/login" element={<Navigate to="/" replace />} />
+        <Route
+          path="/"
+          element={
+            <ReviewPage
+              session={session}
+              onSignOut={signOut}
+              canShowAdmin={memberships.hasAdminAccess}
+            />
+          }
+        />
+        <Route
+          path="/admin"
+          element={
+            memberships.loading ? (
+              <LoadingCard eyebrow="Loading" title="Checking access" />
+            ) : memberships.hasAdminAccess ? (
+              <AdminPage
+                projects={memberships.projects}
+                adminProjectIds={memberships.adminProjectIds}
+                membershipsLoading={memberships.loading}
+                membershipError={memberships.error}
+                onMembershipsChanged={memberships.reload}
+                onSignOut={signOut}
+              />
+            ) : (
+              <Navigate to="/" replace />
+            )
+          }
+        />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </BrowserRouter>
+  )
+}
+
+function LoadingCard({ eyebrow, title }: { eyebrow: string; title: string }) {
+  return (
+    <div className="flex min-h-svh items-center justify-center bg-background">
+      <div className="w-full max-w-sm space-y-3 rounded-lg border border-border px-6 py-8">
+        <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">{eyebrow}</p>
+        <h1 className="text-xl font-semibold text-foreground">{title}</h1>
+        <div className="h-1 w-full overflow-hidden rounded-full bg-muted">
+          <div className="h-full w-1/2 animate-pulse rounded-full bg-foreground/20" />
+        </div>
+      </div>
+    </div>
+  )
 }
 
 export default App
