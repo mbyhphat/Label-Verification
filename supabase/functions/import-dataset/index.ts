@@ -1,4 +1,3 @@
-/// <reference path="./supabase-js.d.ts" />
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
 import { createClient } from '@supabase/supabase-js'
 
@@ -246,7 +245,7 @@ async function buildImportPayload(files: File[], paths: string[] | null): Promis
       throw new ImportValidationError(`Could not infer entity type for ${entityFile.audit.path}.`)
     }
 
-    const language =
+    const language: string | null =
       firstLanguage ??
       stringValue(asObject(manifest.dataset).language) ??
       stringValue(manifest.language) ??
@@ -258,7 +257,7 @@ async function buildImportPayload(files: File[], paths: string[] | null): Promis
     }
     firstLanguage = language
 
-    const sampleKeyPrefix =
+    const sampleKeyPrefix: string =
       firstPrefix ??
       stringValue(asObject(manifest.dataset).sample_key_prefix) ??
       stringValue(manifest.sample_key_prefix) ??
@@ -395,12 +394,14 @@ async function sha256File(file: File): Promise<string> {
     .join('')
 }
 
-function discoverEntityFiles(fileMap: Map<string, ImportFile>): Array<{
+type EntityFileGroup = {
   entityType: string
   audit: ImportFile
   exportFile: ImportFile
-}> {
-  const result = []
+}
+
+function discoverEntityFiles(fileMap: Map<string, ImportFile>): EntityFileGroup[] {
+  const result: EntityFileGroup[] = []
   for (const [path, audit] of fileMap.entries()) {
     const parts = path.split('/')
     if (parts.length === 3 && parts[0] === 'entities' && parts[2] === 'audit.json') {
@@ -415,19 +416,15 @@ function discoverEntityFiles(fileMap: Map<string, ImportFile>): Array<{
 }
 
 function normalizeOutputSamples(payload: unknown): JsonObject[] {
-  const samples = Array.isArray(payload)
-    ? payload
-    : Array.isArray(asObject(payload).samples)
-      ? asObject(payload).samples
-      : Array.isArray(asObject(payload).data)
-        ? asObject(payload).data
-        : null
+  const root = asObject(payload)
+  const samples =
+    asArray(payload) ?? asArray(root.samples) ?? asArray(root.data)
 
   if (!samples) {
     throw new ImportValidationError('samples.json must be a list or contain a samples/data list.')
   }
 
-  return samples.map((sample, index) => {
+  return samples.map((sample: unknown, index: number) => {
     const object = asObject(sample)
     if (typeof object.source_text !== 'string') {
       throw new ImportValidationError(`samples.json sample ${index} is missing source_text.`)
@@ -440,17 +437,13 @@ function normalizeOutputSamples(payload: unknown): JsonObject[] {
 }
 
 function normalizeAuditResults(payload: unknown): JsonObject[] {
-  const results = Array.isArray(payload)
-    ? payload
-    : Array.isArray(asObject(payload).results)
-      ? asObject(payload).results
-      : null
+  const results = asArray(payload) ?? asArray(asObject(payload).results)
 
   if (!results) {
     throw new ImportValidationError('audit.json must be a list or contain a results list.')
   }
 
-  return results.map((item, index) => {
+  return results.map((item: unknown, index: number) => {
     const object = asObject(item)
     if (!object.sample_id) {
       throw new ImportValidationError(`audit.json result ${index} is missing sample_id.`)
@@ -727,6 +720,10 @@ function isObject(value: unknown): value is JsonObject {
 
 function asObject(value: unknown): JsonObject {
   return isObject(value) ? value : {}
+}
+
+function asArray(value: unknown): unknown[] | null {
+  return Array.isArray(value) ? value : null
 }
 
 function jsonStringArray(value: unknown): string[] {

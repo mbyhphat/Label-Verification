@@ -1,4 +1,14 @@
-/** Editor-only types for @supabase/supabase-js (runtime resolves via deno.json). */
+/** Editor-only types for Deno + supabase-js (excluded from deno.json; runtime uses Deno built-ins). */
+declare namespace Deno {
+  function serve(
+    handler: (request: Request) => Response | Promise<Response>,
+  ): void
+
+  const env: {
+    get(key: string): string | undefined
+  }
+}
+
 declare module '@supabase/supabase-js' {
   export type PostgrestError = {
     message: string

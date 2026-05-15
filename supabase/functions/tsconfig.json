@@ -8,9 +8,5 @@
     "strict": true,
     "skipLibCheck": true
   },
-  "include": [
-    "import-dataset/index.ts",
-    "import-dataset/deno-globals.d.ts",
-    "import-dataset/supabase-js.d.ts"
-  ]
+  "include": ["import-dataset/index.ts", "import-dataset/editor.d.ts"]
 }

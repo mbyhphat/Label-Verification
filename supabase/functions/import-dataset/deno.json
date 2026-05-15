@@ -1,4 +1,5 @@
 {
+  "exclude": ["editor.d.ts", "editor-env.d.ts"],
   "imports": {
     "@supabase/supabase-js": "npm:@supabase/supabase-js@2"
   }
