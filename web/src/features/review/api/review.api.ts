@@ -27,18 +27,30 @@ function isJsonRecord(value: Json): value is JsonRecord {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
-export async function listReviewItems(datasetId: string): Promise<ReviewItem[]> {
-  const { data, error } = await supabase
-    .from('review_items')
-    .select('*')
-    .eq('dataset_id', datasetId)
-    .order('status', { ascending: false })
-    .order('entity_type', { ascending: true })
-    .order('sample_key', { ascending: true })
-    .order('audit_record_id', { ascending: true })
+const PAGE_SIZE = 1000
 
-  if (error) throw error
-  return data
+export async function listReviewItems(datasetId: string): Promise<ReviewItem[]> {
+  const all: ReviewItem[] = []
+  let from = 0
+
+  while (true) {
+    const { data, error } = await supabase
+      .from('review_items')
+      .select('*')
+      .eq('dataset_id', datasetId)
+      .order('status', { ascending: false })
+      .order('entity_type', { ascending: true })
+      .order('sample_key', { ascending: true })
+      .order('audit_record_id', { ascending: true })
+      .range(from, from + PAGE_SIZE - 1)
+
+    if (error) throw error
+    all.push(...data)
+    if (data.length < PAGE_SIZE) break
+    from += PAGE_SIZE
+  }
+
+  return all
 }
 
 export async function getReviewBundle(sampleId: string): Promise<ReviewBundle> {
@@ -125,15 +137,25 @@ export async function submitReviewDecision(args: SubmitDecisionArgs): Promise<Js
 }
 
 export async function exportReviewedDataset(datasetId: string): Promise<JsonRecord[]> {
-  const { data: samples, error } = await supabase
-    .from('review_samples')
-    .select('*')
-    .eq('dataset_id', datasetId)
-    .order('sample_index', { ascending: true })
+  // Paginate to avoid the default PostgREST 1000-row cap
+  const rows: ReviewSample[] = []
+  let from = 0
 
-  if (error) throw error
+  while (true) {
+    const { data, error } = await supabase
+      .from('review_samples')
+      .select('*')
+      .eq('dataset_id', datasetId)
+      .order('sample_index', { ascending: true })
+      .range(from, from + PAGE_SIZE - 1)
 
-  return samples.map((sample) => ({
+    if (error) throw error
+    rows.push(...(data as ReviewSample[]))
+    if (data.length < PAGE_SIZE) break
+    from += PAGE_SIZE
+  }
+
+  return rows.map((sample) => ({
     ...(isJsonRecord(sample.raw_output) ? sample.raw_output : {}),
     source_text: sample.current_source_text,
     language: sample.language,

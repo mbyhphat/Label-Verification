@@ -58,3 +58,36 @@ export function replaceSourceText(
     sourceText.slice(item.end_offset),
   ].join('')
 }
+
+/**
+ * For UNREALISTIC_VALUE + accept: updates the matched mask entry's value/end offset
+ * and shifts all subsequent entries to account for the change in text length.
+ */
+export function updateMaskAfterValueReplacement(
+  mask: PrivacyMaskEntry[],
+  item: ReviewItem,
+  replacement: string,
+): PrivacyMaskEntry[] {
+  if (item.start_offset == null || item.end_offset == null) return mask
+
+  const start = item.start_offset
+  const end = item.end_offset
+  const delta = replacement.length - (end - start)
+
+  let matched = false
+
+  return mask.map((entry) => {
+    if (!matched && hasMatchingPosition(entry, item)) {
+      matched = true
+      return { ...entry, value: replacement, end: start + replacement.length }
+    }
+    if (entry.start != null && entry.start > start) {
+      return {
+        ...entry,
+        start: (entry.start as number) + delta,
+        end: entry.end != null ? (entry.end as number) + delta : entry.end,
+      }
+    }
+    return entry
+  })
+}

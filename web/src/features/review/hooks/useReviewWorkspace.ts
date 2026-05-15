@@ -271,6 +271,15 @@ export function useReviewWorkspace(session: Session): ReviewWorkspaceState {
           sourceText: preview.sourceText,
           privacyMask: preview.privacyMask,
         })
+        // Eagerly clear the lock from the in-memory sample so that the next
+        // openItem call on the same sample never takes the fast path (which
+        // would bypass openSample and leave a stale current_privacy_mask in
+        // state, causing subsequent decisions to overwrite with old mask data).
+        setActiveSample((prev) =>
+          prev?.id === sample.id
+            ? { ...prev, locked_by: null, locked_until: null }
+            : prev,
+        )
         if (activeDataset) await loadItems(activeDataset, false)
         setNotice('Saved. Lock released automatically.')
       } catch (err) {
