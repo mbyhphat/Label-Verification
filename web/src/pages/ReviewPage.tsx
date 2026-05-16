@@ -34,6 +34,39 @@ const VERDICT_PILLS: { value: VerdictFilter; label: string }[] = [
   { value: 'UNREALISTIC_VALUE', label: 'Unrealistic' },
 ]
 
+const projectLabelCache = new Map<string, string[]>()
+const projectLabelRequests = new Map<string, Promise<string[]>>()
+
+async function loadCachedProjectLabels(projectId: string, forceRefresh = false): Promise<string[]> {
+  if (!forceRefresh) {
+    const cached = projectLabelCache.get(projectId)
+    if (cached) return cached
+
+    const pending = projectLabelRequests.get(projectId)
+    if (pending) return pending
+  }
+
+  const request = getProjectPiiConfig(projectId)
+    .then((config) => {
+      const labels = config.required_entity_types
+      projectLabelCache.set(projectId, labels)
+      return labels
+    })
+    .catch(() => {
+      projectLabelCache.set(projectId, [])
+      return []
+    })
+
+  projectLabelRequests.set(projectId, request)
+  void request.finally(() => {
+    if (projectLabelRequests.get(projectId) === request) {
+      projectLabelRequests.delete(projectId)
+    }
+  })
+
+  return request
+}
+
 export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps) {
   const {
     datasets,
@@ -68,19 +101,13 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
   } | null>(null)
   const activeProjectId = activeDataset?.project_id ?? null
 
-  const loadProjectLabels = useCallback(async (projectId: string) => {
-    try {
-      const config = await getProjectPiiConfig(projectId)
-      setConfiguredEntityTypes({
-        projectId,
-        labels: config.required_entity_types,
-      })
-    } catch {
-      setConfiguredEntityTypes({
-        projectId,
-        labels: [],
-      })
-    }
+  const loadProjectLabels = useCallback(async (projectId: string, forceRefresh = false) => {
+    const labels = await loadCachedProjectLabels(projectId, forceRefresh)
+    setConfiguredEntityTypes((current) =>
+      current?.projectId === projectId && current.labels === labels
+        ? current
+        : { projectId, labels },
+    )
   }, [])
 
   useEffect(() => {
@@ -88,21 +115,12 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
     const projectId = activeProjectId
 
     async function loadCurrentProjectLabels(projectId: string) {
-      try {
-        const config = await getProjectPiiConfig(projectId)
-        if (!cancelled) {
-          setConfiguredEntityTypes({
-            projectId,
-            labels: config.required_entity_types,
-          })
-        }
-      } catch {
-        if (!cancelled) {
-          setConfiguredEntityTypes({
-            projectId,
-            labels: [],
-          })
-        }
+      const labels = await loadCachedProjectLabels(projectId)
+      if (!cancelled) {
+        setConfiguredEntityTypes({
+          projectId,
+          labels,
+        })
       }
     }
 
@@ -112,21 +130,6 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
       cancelled = true
     }
   }, [activeProjectId])
-
-  useEffect(() => {
-    const projectId = activeProjectId
-    if (!projectId) return
-    const currentProjectId = projectId
-
-    function refreshLabelsOnFocus() {
-      void loadProjectLabels(currentProjectId)
-    }
-
-    window.addEventListener('focus', refreshLabelsOnFocus)
-    return () => {
-      window.removeEventListener('focus', refreshLabelsOnFocus)
-    }
-  }, [activeProjectId, loadProjectLabels])
 
   // ── Derived state ──────────────────────────────────────────────
   const filteredItems = useMemo(() => {
