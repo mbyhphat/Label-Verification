@@ -149,7 +149,7 @@ export function ReviewModal({
         case 'Backspace':
           if (canAct && item && sample) {
             e.preventDefault()
-            if (item.verdict === 'UNREALISTIC_VALUE') {
+            if (item.verdict === 'UNREALISTIC_VALUE' || item.verdict === 'WRONG_LABEL') {
               setShowSubDialog((v) => !v)
             } else {
               setShowSubDialog(false)
@@ -465,7 +465,7 @@ export function ReviewModal({
                 disabled={!canAct}
                 onClick={() => {
                   if (!canAct || !sample) return
-                  if (item.verdict === 'UNREALISTIC_VALUE') {
+                  if (item.verdict === 'UNREALISTIC_VALUE' || item.verdict === 'WRONG_LABEL') {
                     setShowSubDialog((v) => !v)
                   } else {
                     setShowSubDialog(false)
@@ -540,21 +540,28 @@ export function ReviewModal({
               )}
             </div>
 
-            {/* ── Sub-dialog for UNREALISTIC deny ── */}
+            {/* ── Sub-dialog for multi-path deny decisions ── */}
             {showSubDialog && (
               <div
                 className="mt-3 rounded-lg p-3 text-sm"
                 style={{ background: '#232733', border: '1px solid #2e3345' }}
               >
                 <p className="text-[12px] mb-3" style={{ color: '#9ca3b8' }}>
-                  What would you like to do with this sample?
+                  {item.verdict === 'WRONG_LABEL'
+                    ? 'How should this wrong-label finding be denied?'
+                    : 'What would you like to do with this sample?'}
                 </p>
                 <div className="flex gap-2">
                   {(
-                    [
-                      { label: 'Keep as-is', decision: 'deny_keep' as ReviewDecision },
-                      { label: 'Remove label', decision: 'deny_remove' as ReviewDecision },
-                    ] as const
+                    item.verdict === 'WRONG_LABEL'
+                      ? ([
+                          { label: 'Remove from PII mask', decision: 'deny_remove' as ReviewDecision },
+                          { label: 'Keep current label', decision: 'deny' as ReviewDecision },
+                        ] as const)
+                      : ([
+                          { label: 'Keep as-is', decision: 'deny_keep' as ReviewDecision },
+                          { label: 'Remove label', decision: 'deny_remove' as ReviewDecision },
+                        ] as const)
                   ).map(({ label, decision }) => (
                     <button
                       key={decision}

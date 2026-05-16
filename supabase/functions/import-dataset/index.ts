@@ -99,6 +99,7 @@ Deno.serve(async (req) => {
       throw new ImportValidationError('Missing projectId.')
     }
 
+    const mode = stringField(formData, 'mode') ?? 'full'
     const replace = booleanField(formData, 'replace')
     const files = formData
       .getAll('files')
@@ -109,18 +110,55 @@ Deno.serve(async (req) => {
       throw new ImportValidationError('No files were uploaded.')
     }
 
-    const plan = await buildImportPayload(files, paths)
+    let plan: Awaited<ReturnType<typeof buildImportPayload>>
+    let data: unknown
+    let error: { message?: string } | null
 
-    const { data, error } = await supabase.rpc('import_dataset_payload', {
-      p_project_id: projectId,
-      p_manifest: plan.manifest,
-      p_samples: plan.samples,
-      p_entities: plan.entities.map((entity) => ({
-        entity_type: entity.entity_type,
-        review_rows: entity.review_rows,
-      })),
-      p_replace: replace,
-    })
+    if (mode === 'dataset') {
+      plan = await buildDatasetBootstrapPayload(files, paths)
+      const response = await supabase.rpc('import_dataset_payload', {
+        p_project_id: projectId,
+        p_manifest: plan.manifest,
+        p_samples: plan.samples,
+        p_entities: [],
+        p_replace: false,
+      })
+      data = response.data
+      error = response.error
+    } else if (mode === 'entity') {
+      plan = await buildEntityImportPayload(files, paths)
+      if (plan.entities.length !== 1) {
+        throw new ImportValidationError('Entity import mode expects exactly one entity.')
+      }
+      const entity = plan.entities[0]
+      const response = await supabase.rpc('import_dataset_entity_payload', {
+        p_project_id: projectId,
+        p_manifest: plan.manifest,
+        p_entity: {
+          entity_type: entity.entity_type,
+          review_rows: entity.review_rows,
+        },
+        p_replace: replace,
+      })
+      data = response.data
+      error = response.error
+    } else if (mode === 'full') {
+      plan = await buildImportPayload(files, paths)
+      const response = await supabase.rpc('import_dataset_payload', {
+        p_project_id: projectId,
+        p_manifest: plan.manifest,
+        p_samples: plan.samples,
+        p_entities: plan.entities.map((entity) => ({
+          entity_type: entity.entity_type,
+          review_rows: entity.review_rows,
+        })),
+        p_replace: replace,
+      })
+      data = response.data
+      error = response.error
+    } else {
+      throw new ImportValidationError('Unknown import mode: ' + mode + '.')
+    }
 
     if (error) {
       const message = error.message || 'Import failed.'
@@ -344,6 +382,194 @@ async function buildImportPayload(files: File[], paths: string[] | null): Promis
   }
 }
 
+async function buildDatasetBootstrapPayload(files: File[], paths: string[] | null): Promise<{
+  manifest: JsonObject
+  samples: JsonObject[]
+  entities: EntityPayload[]
+  warnings: string[]
+  preview: JsonObject
+}> {
+  const fileMap = normalizeUploadedFiles(files, paths)
+  const manifestFile = fileMap.get('manifest.json')
+  const samplesFile = fileMap.get('samples.json')
+
+  if (!manifestFile) {
+    throw new ImportValidationError('Missing manifest.json at the upload root.')
+  }
+  if (!samplesFile) {
+    throw new ImportValidationError('Missing samples.json at the upload root.')
+  }
+
+  const manifest = asObject(await readJson(manifestFile))
+  const samples = normalizeOutputSamples(await readJson(samplesFile))
+  const samplesSha256 = await sha256File(samplesFile.file)
+  const dataset = asObject(manifest.dataset)
+
+  dataset.language =
+    stringValue(dataset.language) ??
+    stringValue(manifest.language) ??
+    firstNonempty(samples.map((sample) => sample.language))
+  dataset.sample_key_prefix =
+    stringValue(dataset.sample_key_prefix) ??
+    stringValue(manifest.sample_key_prefix) ??
+    stringValue(dataset.source_key) ??
+    stringValue(manifest.source_key)
+  dataset.source_key =
+    stringValue(dataset.source_key) ??
+    stringValue(manifest.source_key) ??
+    dataset.sample_key_prefix
+  dataset.folder = stringValue(dataset.folder) ?? null
+
+  if (!dataset.source_key || !dataset.language || !dataset.sample_key_prefix) {
+    throw new ImportValidationError('Manifest must resolve source_key, language, and sample_key_prefix.')
+  }
+
+  manifest.schema_version = manifest.schema_version ?? 1
+  manifest.dataset = dataset
+  manifest.files = {
+    ...asObject(manifest.files),
+    samples_sha256: samplesSha256,
+  }
+  manifest.generated_by = 'pii_verification/supabase/functions/import-dataset'
+
+  return {
+    manifest,
+    samples,
+    entities: [],
+    warnings: [],
+    preview: {
+      source_key: dataset.source_key,
+      language: dataset.language,
+      folder: dataset.folder,
+      sample_key_prefix: dataset.sample_key_prefix,
+      sample_count: samples.length,
+      entity_count: 0,
+      review_item_count: 0,
+      entities: [],
+      warnings: [],
+    },
+  }
+}
+
+async function buildEntityImportPayload(files: File[], paths: string[] | null): Promise<{
+  manifest: JsonObject
+  samples: JsonObject[]
+  entities: EntityPayload[]
+  warnings: string[]
+  preview: JsonObject
+}> {
+  const fileMap = normalizeUploadedFiles(files, paths)
+  const manifestFile = fileMap.get('manifest.json')
+
+  if (!manifestFile) {
+    throw new ImportValidationError('Missing manifest.json at the upload root.')
+  }
+
+  const manifest = asObject(await readJson(manifestFile))
+  const dataset = asObject(manifest.dataset)
+  const language =
+    stringValue(dataset.language) ??
+    stringValue(manifest.language)
+  const sampleKeyPrefix =
+    stringValue(dataset.sample_key_prefix) ??
+    stringValue(manifest.sample_key_prefix) ??
+    stringValue(dataset.source_key) ??
+    stringValue(manifest.source_key)
+
+  dataset.language = language
+  dataset.sample_key_prefix = sampleKeyPrefix
+  dataset.source_key =
+    stringValue(dataset.source_key) ??
+    stringValue(manifest.source_key) ??
+    sampleKeyPrefix
+  dataset.folder = stringValue(dataset.folder) ?? null
+
+  if (!dataset.source_key || !dataset.language || !dataset.sample_key_prefix) {
+    throw new ImportValidationError('Manifest must resolve source_key, language, and sample_key_prefix.')
+  }
+
+  const entityFiles = discoverEntityFiles(fileMap)
+  if (entityFiles.length === 0) {
+    throw new ImportValidationError('No entities/<ENTITY>/audit.json files were found.')
+  }
+
+  const entities: EntityPayload[] = []
+  const warnings: string[] = []
+
+  for (const entityFile of entityFiles) {
+    const auditJson = await readJson(entityFile.audit)
+    const exportJson = await readJson(entityFile.exportFile)
+    const auditResults = normalizeAuditResults(auditJson)
+    const exportSpans = normalizeExportSpans(exportJson)
+    const exportObject = asObject(exportJson)
+    const entityType = entityFile.entityType || stringValue(exportObject.type)
+
+    if (!entityType) {
+      throw new ImportValidationError('Could not infer entity type for ' + entityFile.audit.path + '.')
+    }
+
+    const sampleLookup = buildSampleLookupFromRefs(auditResults, exportSpans, String(dataset.sample_key_prefix))
+    const [reviewRows, reviewWarnings] = buildReviewRows(
+      auditResults,
+      exportSpans,
+      entityType,
+      sampleLookup,
+    )
+    const [dedupedRows, dedupeWarnings] = dedupeReviewRows(reviewRows)
+
+    warnings.push(...reviewWarnings.map((warning) => entityType + ': ' + warning))
+    warnings.push(...dedupeWarnings.map((warning) => entityType + ': ' + warning))
+
+    const auditSha256 = await sha256File(entityFile.audit.file)
+    const exportSha256 = await sha256File(entityFile.exportFile.file)
+    const nextFiles = asObject(manifest.files)
+    const nextEntityFiles = asObject(nextFiles.entities)
+    nextEntityFiles[entityType] = {
+      audit_sha256: auditSha256,
+      export_sha256: exportSha256,
+      audit_count: auditResults.length,
+      export_span_count: exportSpans.length,
+      review_item_count: dedupedRows.length,
+    }
+    nextFiles.entities = nextEntityFiles
+    manifest.files = nextFiles
+
+    entities.push({
+      entity_type: entityType,
+      audit_results: auditResults,
+      export_spans: exportSpans,
+      review_rows: dedupedRows,
+    })
+  }
+
+  manifest.schema_version = manifest.schema_version ?? 1
+  manifest.dataset = dataset
+  manifest.generated_by = 'pii_verification/supabase/functions/import-dataset'
+
+  return {
+    manifest,
+    samples: [],
+    entities,
+    warnings,
+    preview: {
+      source_key: dataset.source_key,
+      language: dataset.language,
+      folder: dataset.folder,
+      sample_key_prefix: dataset.sample_key_prefix,
+      sample_count: null,
+      entity_count: entities.length,
+      review_item_count: entities.reduce((total, entity) => total + entity.review_rows.length, 0),
+      entities: entities.map((entity) => ({
+        entity_type: entity.entity_type,
+        audit_count: entity.audit_results.length,
+        export_span_count: entity.export_spans.length,
+        review_item_count: entity.review_rows.length,
+      })),
+      warnings,
+    },
+  }
+}
+
 function normalizeUploadedFiles(files: File[], paths: string[] | null): Map<string, ImportFile> {
   const uploads = files.map((file, index) => ({
     path: normalizePath(paths?.[index] ?? file.name),
@@ -497,6 +723,31 @@ function buildSampleLookup(samples: JsonObject[], sampleKeyPrefix: string): {
     byKey.set(row.sample_key, row)
     byIndex.set(index, row)
   })
+  return { byKey, byIndex }
+}
+
+function buildSampleLookupFromRefs(
+  auditResults: JsonObject[],
+  exportSpans: JsonObject[],
+  sampleKeyPrefix: string,
+): ReturnType<typeof buildSampleLookup> {
+  const byKey = new Map<string, SampleLookupRow>()
+  const byIndex = new Map<number, SampleLookupRow>()
+
+  for (const row of [...auditResults, ...exportSpans]) {
+    const sampleId = String(row.sample_id ?? '')
+    const ref = parseSampleRef(sampleId)
+    if (!ref) continue
+
+    const lookupRow = byIndex.get(ref.index) ?? {
+      sample_index: ref.index,
+      sample_key: sampleKeyPrefix + '#' + ref.index,
+    }
+    byIndex.set(ref.index, lookupRow)
+    byKey.set(lookupRow.sample_key, lookupRow)
+    byKey.set(sampleId, lookupRow)
+  }
+
   return { byKey, byIndex }
 }
 

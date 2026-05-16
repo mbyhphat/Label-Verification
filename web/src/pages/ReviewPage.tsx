@@ -163,20 +163,22 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
     [modalItemId, filteredItems],
   )
 
+  const projectLabelOptions = useMemo(() => {
+    return configuredEntityTypes && configuredEntityTypes.projectId === activeProjectId
+      ? configuredEntityTypes.labels
+      : []
+  }, [activeProjectId, configuredEntityTypes])
+
   const labelOptions = useMemo(() => {
     const seen = new Set<string>()
     const labels: string[] = []
-    const configuredLabels =
-      configuredEntityTypes && configuredEntityTypes.projectId === activeDataset?.project_id
-        ? configuredEntityTypes.labels
-        : []
     const addLabel = (label: string | null | undefined) => {
       if (!label || seen.has(label)) return
       seen.add(label)
       labels.push(label)
     }
 
-    for (const label of configuredLabels) addLabel(label)
+    for (const label of projectLabelOptions) addLabel(label)
     for (const label of entityTypes) addLabel(label)
     for (const entry of activeSample?.current_privacy_mask ?? []) {
       addLabel(entry.label)
@@ -184,10 +186,9 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
 
     return labels
   }, [
-    activeDataset?.project_id,
     activeSample?.current_privacy_mask,
-    configuredEntityTypes,
     entityTypes,
+    projectLabelOptions,
   ])
 
   // ── Navigation helper ──────────────────────────────────────────
@@ -242,7 +243,7 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
           ? filteredItems[currentIdx + 1]
           : null
 
-      await submitDecision(item, sample, decision, reviewerNote)
+      await submitDecision(item, sample, decision, reviewerNote, projectLabelOptions)
 
       if (nextItem) {
         await navigateToItem(nextItem)
@@ -250,7 +251,7 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
         setModalItemId(null)
       }
     },
-    [filteredItems, submitDecision, navigateToItem],
+    [filteredItems, projectLabelOptions, submitDecision, navigateToItem],
   )
 
   const handleModalSaveSampleMask = useCallback(

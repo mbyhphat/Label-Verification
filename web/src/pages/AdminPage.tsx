@@ -18,7 +18,12 @@ import type {
   ImportResult,
   LabelingProject,
 } from '@/types/domain'
-import { createProject, checkExistingDataset, importDataset } from '@/features/admin/api/import.api'
+import {
+  createProject,
+  checkExistingDataset,
+  importDataset,
+  type ImportProgressUpdate,
+} from '@/features/admin/api/import.api'
 import { FolderUploadZone } from '@/features/admin/components/FolderUploadZone'
 import { ImportPreview } from '@/features/admin/components/ImportPreview'
 import { ImportProgress } from '@/features/admin/components/ImportProgress'
@@ -56,6 +61,7 @@ export function AdminPage({
   const [checkingExisting, setCheckingExisting] = useState(false)
   const [replace, setReplace] = useState(false)
   const [importing, setImporting] = useState(false)
+  const [importProgress, setImportProgress] = useState<ImportProgressUpdate | null>(null)
   const [result, setResult] = useState<ImportResult | null>(null)
   const [error, setError] = useState('')
   const activeProjectId =
@@ -116,16 +122,19 @@ export function AdminPage({
     if (!folder || !activeProjectId) return
     setImporting(true)
     setError('')
+    setImportProgress(null)
     setResult(null)
     try {
       const nextResult = await importDataset({
         projectId: activeProjectId,
         folder,
         replace,
+        onProgress: setImportProgress,
       })
       setResult(nextResult)
       setReplace(false)
       setExisting(await checkExistingDataset(activeProjectId, folder))
+      setImportProgress(null)
     } catch (err) {
       setError(formatSupabaseError(err))
     } finally {
@@ -231,10 +240,11 @@ export function AdminPage({
                   setFolder(nextFolder)
                   setExisting(null)
                   setResult(null)
+                  setImportProgress(null)
                   setError('')
                 }}
               />
-              <ImportProgress result={result} error={error && !membershipError ? error : ''} />
+              <ImportProgress result={result} error={error && !membershipError ? error : ''} progress={importProgress} />
             </div>
 
             {folder ? (

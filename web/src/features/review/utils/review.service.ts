@@ -17,6 +17,19 @@ export type DecisionPreview = {
   privacyMask: PrivacyMaskEntry[]
 }
 
+type DecisionPreviewOptions = {
+  projectLabels?: string[]
+}
+
+function getAllowedProjectLabel(
+  label: string | null | undefined,
+  projectLabels: string[],
+): string | null {
+  if (!label) return null
+  const normalizedLabel = label.trim().toUpperCase()
+  return projectLabels.includes(normalizedLabel) ? normalizedLabel : null
+}
+
 /**
  * Computes the new source_text and privacy_mask that should be persisted for
  * a given (verdict × decision) combination, mirroring the logic in viewer.html.
@@ -24,9 +37,10 @@ export type DecisionPreview = {
  * Truth table (matches viewer.html handleDecision):
  *   CORRECT       + accept      → no-op
  *   CORRECT       + deny        → removeMaskEntry
- *   WRONG_LABEL   + accept      → removeMaskEntry  (agree: label IS wrong → drop it)
+ *   WRONG_LABEL   + accept      → relabel to suggested label if it is project-allowed;
+ *                                  otherwise removeMaskEntry
  *   WRONG_LABEL   + deny        → no-op            (disagree: keep label as-is)
- *   WRONG_LABEL   + deny_keep   → replaceMaskLabel  (keep span, fix label – power-user path)
+ *   WRONG_LABEL   + deny_remove → removeMaskEntry  (value is not PII)
  *   UNREALISTIC   + accept      → replaceSourceText + updateMaskAfterValueReplacement
  *   UNREALISTIC   + deny_keep   → no-op
  *   UNREALISTIC   + deny_remove → removeMaskEntry
@@ -35,7 +49,11 @@ export function buildDecisionPreview(
   sample: ReviewSample,
   item: ReviewItem,
   decision: ReviewDecision,
+  options: DecisionPreviewOptions = {},
 ): DecisionPreview {
+  const projectLabels = options.projectLabels ?? []
+  const suggestedLabel = getAllowedProjectLabel(item.suggested_label, projectLabels)
+
   const noOp: DecisionPreview = {
     decision,
     sourceText: sample.current_source_text,
@@ -54,26 +72,29 @@ export function buildDecisionPreview(
 
   if (item.verdict === 'WRONG_LABEL') {
     if (decision === 'accept') {
-      // agree label is wrong → remove the mask entry
+      if (suggestedLabel) {
+        return {
+          decision,
+          sourceText: sample.current_source_text,
+          privacyMask: replaceMaskLabel(sample.current_privacy_mask, item, suggestedLabel),
+        }
+      }
+
+      // Agree the current label is wrong, but no project-allowed replacement exists.
       return {
         decision,
         sourceText: sample.current_source_text,
         privacyMask: removeMaskEntry(sample.current_privacy_mask, item),
       }
     }
-    if (decision === 'deny_keep') {
-      // power-user path (ReviewDetailPanel): keep span but relabel it
+    if (decision === 'deny_remove') {
       return {
         decision,
         sourceText: sample.current_source_text,
-        privacyMask: replaceMaskLabel(
-          sample.current_privacy_mask,
-          item,
-          item.suggested_label || item.entity_type,
-        ),
+        privacyMask: removeMaskEntry(sample.current_privacy_mask, item),
       }
     }
-    // deny / deny_remove → disagree, keep label as-is
+    // deny / deny_keep → keep the current PII span as-is.
     return noOp
   }
 
@@ -103,8 +124,13 @@ export function buildDecisionPreview(
   return noOp
 }
 
-export function recommendedDecision(item: ReviewItem): ReviewDecision {
+export function recommendedDecision(
+  item: ReviewItem,
+  projectLabels: string[] = [],
+): ReviewDecision {
   if (item.verdict === 'CORRECT') return 'accept'
-  if (item.verdict === 'WRONG_LABEL') return 'deny_keep'
+  if (item.verdict === 'WRONG_LABEL') {
+    return getAllowedProjectLabel(item.suggested_label, projectLabels) ? 'accept' : 'deny_remove'
+  }
   return 'deny_remove'
 }

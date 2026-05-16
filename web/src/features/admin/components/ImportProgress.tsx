@@ -1,13 +1,15 @@
 import { AlertCircle, CheckCircle2 } from 'lucide-react'
+import type { ImportProgressUpdate } from '../api/import.api'
 import type { ImportResult } from '@/types/domain'
 
 type ImportProgressProps = {
   result: ImportResult | null
   error: string
+  progress?: ImportProgressUpdate | null
 }
 
-export function ImportProgress({ result, error }: ImportProgressProps) {
-  if (!result && !error) return null
+export function ImportProgress({ result, error, progress }: ImportProgressProps) {
+  if (!result && !error && !progress) return null
 
   return (
     <section className="rounded-lg border border-border bg-card p-4">
@@ -17,6 +19,18 @@ export function ImportProgress({ result, error }: ImportProgressProps) {
           <div>
             <h2 className="text-base font-semibold">Import failed</h2>
             <p className="mt-1 text-sm">{error}</p>
+          </div>
+        </div>
+      ) : progress ? (
+        <div className="flex items-start gap-3 text-primary">
+          <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" />
+          <div>
+            <h2 className="text-base font-semibold">Importing</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {progress.phase === 'samples'
+                ? 'Uploading samples'
+                : `Uploading ${progress.entityType ?? 'entity'} (${progress.completed}/${progress.total})`}
+            </p>
           </div>
         </div>
       ) : (

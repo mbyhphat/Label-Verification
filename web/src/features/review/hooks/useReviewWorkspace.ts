@@ -57,6 +57,7 @@ export type ReviewWorkspaceState = {
     sample: ReviewSample,
     decision: ReviewDecision,
     reviewerNote: string,
+    projectLabels?: string[],
   ) => Promise<void>
   saveSampleMask: (
     sample: ReviewSample,
@@ -270,11 +271,12 @@ export function useReviewWorkspace(session: Session): ReviewWorkspaceState {
       sample: ReviewSample,
       decision: ReviewDecision,
       reviewerNote: string,
+      projectLabels: string[] = [],
     ) => {
       setSaving(true)
       setNotice('')
       try {
-        const preview = buildDecisionPreview(sample, item, decision)
+        const preview = buildDecisionPreview(sample, item, decision, { projectLabels })
         await submitReviewDecision({
           item,
           sample,
