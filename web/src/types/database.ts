@@ -105,6 +105,8 @@ export type Database = {
           p_sample_version: number
           p_new_privacy_mask: Json
           p_new_source_text?: string | null
+          p_review_item_id?: string | null
+          p_item_version?: number | null
         }
         Returns: ReviewSample
       }

@@ -137,6 +137,7 @@ export async function submitReviewDecision(args: SubmitDecisionArgs): Promise<Js
 }
 
 export async function updateReviewSampleMask(args: {
+  item?: ReviewItem
   sample: ReviewSample
   sourceText: string
   privacyMask: PrivacyMaskEntry[]
@@ -144,6 +145,8 @@ export async function updateReviewSampleMask(args: {
   const { data, error } = await supabase.rpc('update_review_sample_mask', {
     p_sample_id: args.sample.id,
     p_sample_version: args.sample.version,
+    p_review_item_id: args.item?.id ?? null,
+    p_item_version: args.item?.version ?? null,
     p_new_privacy_mask: args.privacyMask as Json,
     p_new_source_text: args.sourceText,
   })

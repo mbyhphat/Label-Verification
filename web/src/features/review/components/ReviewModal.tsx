@@ -69,6 +69,7 @@ interface ReviewModalProps {
     note: string,
   ) => Promise<void>
   onSaveSampleMask: (
+    item: ReviewItem,
     sample: ReviewSample,
     sourceText: string,
     privacyMask: PrivacyMaskEntry[],
@@ -383,7 +384,9 @@ export function ReviewModal({
                 saving={saving}
                 canEdit={hasLock && !acquiringLock}
                 onClose={() => setShowMaskEditor(false)}
-                onSave={onSaveSampleMask}
+                onSave={(editingSample, sourceText, privacyMask) =>
+                  onSaveSampleMask(item, editingSample, sourceText, privacyMask)
+                }
               />
             )}
 

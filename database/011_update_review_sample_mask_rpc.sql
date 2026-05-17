@@ -1,17 +1,20 @@
 -- 011_update_review_sample_mask_rpc.sql
 -- Purpose:
---   Persist sample-level source text and privacy_mask edits without completing
---   an individual review item. This lets reviewers fix the overall labeling result while
---   preserving the existing lock/version/audit workflow.
+--   Persist sample-level source text and privacy_mask edits. When the edit is
+--   made from a review item, submit that pending item as completed so manual
+--   text or label corrections no longer remain in the Pending queue.
 
 drop function if exists public.update_review_sample_mask(uuid, integer, jsonb);
 drop function if exists public.update_review_sample_mask(uuid, integer, jsonb, text);
+drop function if exists public.update_review_sample_mask(uuid, integer, jsonb, text, uuid, integer);
 
 create or replace function public.update_review_sample_mask(
   p_sample_id uuid,
   p_sample_version integer,
   p_new_privacy_mask jsonb,
-  p_new_source_text text default null
+  p_new_source_text text default null,
+  p_review_item_id uuid default null,
+  p_item_version integer default null
 )
 returns public.review_samples
 language plpgsql
@@ -22,7 +25,10 @@ declare
   v_user uuid := auth.uid();
   v_project_id uuid;
   v_sample public.review_samples;
+  v_item public.review_items;
+  v_has_item boolean := false;
   v_before jsonb;
+  v_after jsonb;
 begin
   if v_user is null then
     raise exception 'not_authenticated';
@@ -40,6 +46,28 @@ begin
 
   if not found then
     raise exception 'sample_not_found';
+  end if;
+
+  if p_review_item_id is not null then
+    select *
+    into v_item
+    from public.review_items
+    where id = p_review_item_id
+    for update;
+
+    if not found then
+      raise exception 'review_item_not_found';
+    end if;
+
+    if v_item.sample_row_id <> v_sample.id then
+      raise exception 'review_item_sample_mismatch';
+    end if;
+
+    if p_item_version is not null and v_item.version <> p_item_version then
+      raise exception 'stale_version';
+    end if;
+
+    v_has_item := true;
   end if;
 
   select d.project_id
@@ -65,7 +93,10 @@ begin
     return v_sample;
   end if;
 
-  v_before := to_jsonb(v_sample);
+  v_before := case
+    when v_has_item then jsonb_build_object('sample', to_jsonb(v_sample), 'item', to_jsonb(v_item))
+    else to_jsonb(v_sample)
+  end;
 
   update public.review_samples
   set current_source_text = coalesce(p_new_source_text, current_source_text),
@@ -76,10 +107,28 @@ begin
   where id = p_sample_id
   returning * into v_sample;
 
+  if v_has_item and v_item.status = 'pending' then
+    update public.review_items
+    set status = 'completed',
+        decision = 'accept',
+        decided_by = v_user,
+        decided_at = now(),
+        version = version + 1,
+        updated_at = now()
+    where id = v_item.id
+    returning * into v_item;
+  end if;
+
+  v_after := case
+    when v_has_item then jsonb_build_object('sample', to_jsonb(v_sample), 'item', to_jsonb(v_item))
+    else to_jsonb(v_sample)
+  end;
+
   insert into public.audit_events (
     project_id,
     dataset_id,
     sample_row_id,
+    review_item_id,
     actor_id,
     action,
     before_state,
@@ -89,14 +138,15 @@ begin
     v_project_id,
     v_sample.dataset_id,
     v_sample.id,
+    case when v_has_item then v_item.id else null end,
     v_user,
     'sample_text_mask_updated',
     v_before,
-    to_jsonb(v_sample)
+    v_after
   );
 
   return v_sample;
 end;
 $$;
 
-grant execute on function public.update_review_sample_mask(uuid, integer, jsonb, text) to authenticated;
+grant execute on function public.update_review_sample_mask(uuid, integer, jsonb, text, uuid, integer) to authenticated;

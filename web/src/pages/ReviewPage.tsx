@@ -258,8 +258,13 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
   )
 
   const handleModalSaveSampleMask = useCallback(
-    async (sample: ReviewSample, sourceText: string, privacyMask: PrivacyMaskEntry[]) => {
-      await saveSampleMask(sample, sourceText, privacyMask)
+    async (
+      item: ReviewItem,
+      sample: ReviewSample,
+      sourceText: string,
+      privacyMask: PrivacyMaskEntry[],
+    ) => {
+      await saveSampleMask(item, sample, sourceText, privacyMask)
     },
     [saveSampleMask],
   )
