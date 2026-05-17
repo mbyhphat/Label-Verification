@@ -1,10 +1,14 @@
+import { lazy, Suspense } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
-import { AdminPage } from '@/pages/AdminPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { ReviewPage } from '@/pages/ReviewPage'
 import { useProjectMemberships } from '@/hooks/useProjectMemberships'
 import { useSession } from '@/hooks/useSession'
 import { supabaseConfig } from '@/lib/supabase/client'
+
+const AdminPage = lazy(() =>
+  import('@/pages/AdminPage').then((m) => ({ default: m.AdminPage })),
+)
 
 function App() {
   const { session, loading, signOut } = useSession()
@@ -81,14 +85,16 @@ function App() {
             memberships.loading ? (
               <LoadingCard eyebrow="Loading" title="Checking access" />
             ) : memberships.hasAdminAccess ? (
-              <AdminPage
-                projects={memberships.projects}
-                adminProjectIds={memberships.adminProjectIds}
-                membershipsLoading={memberships.loading}
-                membershipError={memberships.error}
-                onMembershipsChanged={memberships.reload}
-                onSignOut={signOut}
-              />
+              <Suspense fallback={<LoadingCard eyebrow="Loading" title="Opening admin" />}>
+                <AdminPage
+                  projects={memberships.projects}
+                  adminProjectIds={memberships.adminProjectIds}
+                  membershipsLoading={memberships.loading}
+                  membershipError={memberships.error}
+                  onMembershipsChanged={memberships.reload}
+                  onSignOut={signOut}
+                />
+              </Suspense>
             ) : (
               <Navigate to="/" replace />
             )

@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
-import { supabase } from '@/lib/supabase/client'
+import { supabase, getStoredSession } from '@/lib/supabase/client'
 
 export function useSession() {
-  const [session, setSession] = useState<Session | null>(null)
-  const [loading, setLoading] = useState(true)
+  // Lazy initialisers: read localStorage once on mount — not on every render.
+  // Returning users skip the loading screen until getSession confirms below.
+  const [session, setSession] = useState<Session | null>(() => getStoredSession())
+  const [loading, setLoading] = useState(() => session === null)
 
   useEffect(() => {
     let mounted = true

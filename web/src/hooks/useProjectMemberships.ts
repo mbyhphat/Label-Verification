@@ -54,11 +54,7 @@ export function useProjectMemberships(session: Session | null): UseProjectMember
   }, [session])
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void reload()
-    }, 0)
-
-    return () => window.clearTimeout(timer)
+    void reload()
   }, [reload])
 
   const adminProjectIds = useMemo(

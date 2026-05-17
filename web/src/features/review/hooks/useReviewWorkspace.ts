@@ -16,6 +16,19 @@ import {
   submitReviewDecision,
   updateReviewSampleMask,
 } from '../api/review.api'
+import { listDatasets } from '../api/dataset.api'
+import { buildDecisionPreview } from '../utils/review.service'
+import { useReviewRealtime } from './useReviewRealtime'
+
+const LAST_DATASET_KEY = 'pii-last-dataset-id'
+
+function getLastDatasetId(): string | null {
+  return localStorage.getItem(LAST_DATASET_KEY)
+}
+
+function saveLastDatasetId(id: string): void {
+  localStorage.setItem(LAST_DATASET_KEY, id)
+}
 
 function isLockValid(sample: ReviewSample | null, userId: string): boolean {
   return (
@@ -24,9 +37,6 @@ function isLockValid(sample: ReviewSample | null, userId: string): boolean {
     new Date(sample.locked_until).getTime() > Date.now()
   )
 }
-import { listDatasets } from '../api/dataset.api'
-import { buildDecisionPreview } from '../utils/review.service'
-import { useReviewRealtime } from './useReviewRealtime'
 
 type ReviewStats = {
   pending: number
@@ -60,6 +70,7 @@ export type ReviewWorkspaceState = {
     projectLabels?: string[],
   ) => Promise<void>
   saveSampleMask: (
+    item: ReviewItem,
     sample: ReviewSample,
     sourceText: string,
     privacyMask: PrivacyMaskEntry[],
@@ -154,20 +165,46 @@ export function useReviewWorkspace(session: Session): ReviewWorkspaceState {
     }
   }, [activeSample])
 
-  // ── Bootstrap: load datasets on mount ─────────────────────────────
+  // ── Bootstrap: load datasets + (optionally) items in parallel ───────
 
   useEffect(() => {
     async function init() {
+      const lastId = getLastDatasetId()
       setLoadingDatasets(true)
+      if (lastId) setLoadingItems(true)
+
       try {
-        const list = await listDatasets()
+        const [list, prefetchedItems] = await Promise.all([
+          listDatasets(),
+          lastId ? listReviewItems(lastId).catch(() => null) : Promise.resolve(null),
+        ])
+
         setDatasets(list)
-        if (list.length > 0) {
-          setActiveDataset(list[0])
-          await loadItems(list[0])
+
+        if (list.length === 0) {
+          setActiveDataset(null)
+          setAllItems([])
+          setLoadingItems(false)
+          return
+        }
+
+        const target = list.find((d) => d.id === lastId) ?? list[0]
+        setActiveDataset(target)
+        saveLastDatasetId(target.id)
+
+        if (prefetchedItems !== null && target.id === lastId) {
+          setAllItems(prefetchedItems)
+          setActiveEntityType(null)
+          setSamplesById(new Map())
+          setActiveItem(null)
+          setActiveSample(null)
+          setLoadingItems(false)
+        } else {
+          await loadItems(target)
         }
       } catch (err) {
         setNotice(formatSupabaseError(err))
+        setLoadingItems(false)
       } finally {
         setLoadingDatasets(false)
       }
@@ -203,6 +240,7 @@ export function useReviewWorkspace(session: Session): ReviewWorkspaceState {
       if (activeSample?.locked_by === session.user.id) {
         await releaseActive()
       }
+      saveLastDatasetId(dataset.id)
       setActiveDataset(dataset)
       await loadItems(dataset)
     },
@@ -306,13 +344,36 @@ export function useReviewWorkspace(session: Session): ReviewWorkspaceState {
   )
 
   const saveSampleMask = useCallback(
-    async (sample: ReviewSample, sourceText: string, privacyMask: PrivacyMaskEntry[]) => {
+    async (
+      item: ReviewItem,
+      sample: ReviewSample,
+      sourceText: string,
+      privacyMask: PrivacyMaskEntry[],
+    ) => {
       setSaving(true)
       setNotice('')
       try {
-        const updated = await updateReviewSampleMask({ sample, sourceText, privacyMask })
+        const updated = await updateReviewSampleMask({ item, sample, sourceText, privacyMask })
+        const submittedAt = new Date().toISOString()
+        const markSubmitted = (current: ReviewItem): ReviewItem => {
+          if (current.status !== 'pending') return current
+          return {
+            ...current,
+            status: 'completed',
+            decision: 'accept',
+            decided_by: session.user.id,
+            decided_at: submittedAt,
+            version: current.version + 1,
+            updated_at: submittedAt,
+          }
+        }
+
         setSamplesById((prev) => new Map(prev).set(updated.id, updated))
         setActiveSample((prev) => (prev?.id === updated.id ? updated : prev))
+        setAllItems((prev) =>
+          prev.map((current) => (current.id === item.id ? markSubmitted(current) : current)),
+        )
+        setActiveItem((prev) => (prev?.id === item.id ? markSubmitted(prev) : prev))
         setNotice('Sample text and labels updated.')
       } catch (err) {
         setNotice(formatSupabaseError(err))
@@ -321,7 +382,7 @@ export function useReviewWorkspace(session: Session): ReviewWorkspaceState {
         setSaving(false)
       }
     },
-    [],
+    [session.user.id],
   )
 
   return {
