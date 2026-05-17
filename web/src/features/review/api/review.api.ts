@@ -27,30 +27,15 @@ function isJsonRecord(value: Json): value is JsonRecord {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
-const PAGE_SIZE = 1000
+const SAMPLE_EXPORT_PAGE_SIZE = 1000
 
 export async function listReviewItems(datasetId: string): Promise<ReviewItem[]> {
-  const all: ReviewItem[] = []
-  let from = 0
+  const { data, error } = await supabase.rpc('list_review_items', {
+    p_dataset_id: datasetId,
+  })
 
-  while (true) {
-    const { data, error } = await supabase
-      .from('review_items')
-      .select('*')
-      .eq('dataset_id', datasetId)
-      .order('status', { ascending: false })
-      .order('entity_type', { ascending: true })
-      .order('sample_key', { ascending: true })
-      .order('audit_record_id', { ascending: true })
-      .range(from, from + PAGE_SIZE - 1)
-
-    if (error) throw error
-    all.push(...data)
-    if (data.length < PAGE_SIZE) break
-    from += PAGE_SIZE
-  }
-
-  return all
+  if (error) throw error
+  return data ?? []
 }
 
 export async function getReviewBundle(sampleId: string): Promise<ReviewBundle> {
@@ -166,12 +151,12 @@ export async function exportReviewedDataset(datasetId: string): Promise<JsonReco
       .select('*')
       .eq('dataset_id', datasetId)
       .order('sample_index', { ascending: true })
-      .range(from, from + PAGE_SIZE - 1)
+      .range(from, from + SAMPLE_EXPORT_PAGE_SIZE - 1)
 
     if (error) throw error
     rows.push(...(data as ReviewSample[]))
-    if (data.length < PAGE_SIZE) break
-    from += PAGE_SIZE
+    if (data.length < SAMPLE_EXPORT_PAGE_SIZE) break
+    from += SAMPLE_EXPORT_PAGE_SIZE
   }
 
   return rows.map((sample) => ({

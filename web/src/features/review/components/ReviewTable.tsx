@@ -1,4 +1,6 @@
+import { useRef } from 'react'
 import type { CSSProperties, KeyboardEvent } from 'react'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import { AlertTriangle, Check, XCircle } from 'lucide-react'
 import type { ReviewItem, ReviewSample } from '@/types/domain'
 
@@ -11,6 +13,9 @@ type ReviewTableProps = {
 }
 
 type IconComponent = typeof Check
+
+/** Shared by header row and data rows — absolute-positioned `<tr>` breaks table layout, so we use CSS Grid. */
+const GRID_TEMPLATE_COLUMNS = 'minmax(88px, 12fr) minmax(120px, 18fr) minmax(140px, 38fr) minmax(104px, 14fr) minmax(92px, 12fr) minmax(52px, 6fr)'
 
 const VERDICT_BADGE: Record<
   string,
@@ -39,6 +44,8 @@ const VERDICT_BADGE: Record<
   },
 }
 
+const ESTIMATE_ROW_HEIGHT = 41
+
 function getLockLabel(sample: ReviewSample | undefined, userId: string): string {
   if (!sample?.locked_by || !sample.locked_until) return 'Free'
   if (new Date(sample.locked_until).getTime() < Date.now()) return 'Expired'
@@ -64,14 +71,18 @@ const TH_STYLE: CSSProperties = {
   textTransform: 'uppercase',
   letterSpacing: '0.3px',
   fontSize: '10px',
-  position: 'sticky',
-  top: 0,
-  background: '#0f1117',
   whiteSpace: 'nowrap',
   userSelect: 'none',
 }
 
-function isActivationKey(event: KeyboardEvent<HTMLTableRowElement>): boolean {
+const HEADER_GRID_STYLE: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: GRID_TEMPLATE_COLUMNS,
+  width: '100%',
+  alignItems: 'center',
+}
+
+function isActivationKey(event: KeyboardEvent<HTMLElement>): boolean {
   return event.key === 'Enter' || event.key === ' '
 }
 
@@ -82,6 +93,15 @@ export function ReviewTable({
   currentUserId,
   onOpenItem,
 }: ReviewTableProps) {
+  const parentRef = useRef<HTMLDivElement>(null)
+
+  const rowVirtualizer = useVirtualizer({
+    count: items.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => ESTIMATE_ROW_HEIGHT,
+    overscan: 5,
+  })
+
   if (items.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center bg-background">
@@ -93,27 +113,49 @@ export function ReviewTable({
   }
 
   return (
-    <div className="flex-1 overflow-auto bg-background">
-      <table
-        style={{
-          width: '100%',
-          minWidth: '780px',
-          borderCollapse: 'collapse',
-          fontSize: '12px',
-        }}
-      >
-        <thead>
-          <tr>
-            <th style={TH_STYLE}>Sample</th>
-            <th style={TH_STYLE}>Class</th>
-            <th style={TH_STYLE}>Value</th>
-            <th style={TH_STYLE}>Verdict</th>
-            <th style={TH_STYLE}>Status</th>
-            <th style={TH_STYLE}>Lock</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((item) => {
+    <div ref={parentRef} className="flex-1 overflow-auto bg-background">
+      <div style={{ width: '100%', minWidth: '780px', fontSize: '12px' }}>
+        <div
+          style={{
+            position: 'sticky',
+            top: 0,
+            zIndex: 2,
+            background: '#0f1117',
+            borderBottom: '2px solid #2e3345',
+          }}
+        >
+          <div role="row" style={HEADER_GRID_STYLE}>
+            <div role="columnheader" style={TH_STYLE}>
+              Sample
+            </div>
+            <div role="columnheader" style={TH_STYLE}>
+              Class
+            </div>
+            <div role="columnheader" style={TH_STYLE}>
+              Value
+            </div>
+            <div role="columnheader" style={TH_STYLE}>
+              Verdict
+            </div>
+            <div role="columnheader" style={TH_STYLE}>
+              Status
+            </div>
+            <div role="columnheader" style={TH_STYLE}>
+              Lock
+            </div>
+          </div>
+        </div>
+
+        <div
+          role="presentation"
+          style={{
+            height: `${rowVirtualizer.getTotalSize()}px`,
+            position: 'relative',
+            width: '100%',
+          }}
+        >
+          {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+            const item = items[virtualRow.index]
             const sample = samplesById.get(item.sample_row_id)
             const lockLabel = getLockLabel(sample, currentUserId)
             const badge = VERDICT_BADGE[item.verdict]
@@ -122,7 +164,6 @@ export function ReviewTable({
             const BadgeIcon = badge?.Icon
             const DecisionIcon = decisionLabel?.Icon
 
-            // Row background based on decision + active state
             const rowBg = isActive
               ? 'rgba(96,165,250,0.08)'
               : item.decision === 'accept'
@@ -132,11 +173,12 @@ export function ReviewTable({
                   : 'transparent'
 
             return (
-              <tr
+              <div
                 key={item.id}
-                aria-label={`Open sample ${item.sample_key.split('#').at(-1)} for ${item.value}`}
                 role="button"
+                data-index={virtualRow.index}
                 tabIndex={0}
+                aria-label={`Open sample ${item.sample_key.split('#').at(-1)} for ${item.value}`}
                 onClick={() => onOpenItem(item)}
                 onKeyDown={(event) => {
                   if (!isActivationKey(event)) return
@@ -145,69 +187,72 @@ export function ReviewTable({
                 }}
                 className="focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#60a5fa]"
                 style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  height: `${virtualRow.size}px`,
+                  transform: `translateY(${virtualRow.start}px)`,
+                  display: 'grid',
+                  gridTemplateColumns: GRID_TEMPLATE_COLUMNS,
+                  alignItems: 'center',
                   borderBottom: '1px solid #2e3345',
                   cursor: 'pointer',
                   background: rowBg,
                   transition: 'background 0.1s',
+                  boxSizing: 'border-box',
                   boxShadow: isActive ? 'inset 3px 0 0 #60a5fa' : undefined,
-                  contentVisibility: 'auto',
-                  containIntrinsicSize: '40px',
                 }}
                 onMouseEnter={(e) => {
-                  if (!isActive)
-                    (e.currentTarget as HTMLElement).style.background = '#1a1d27'
+                  if (!isActive) (e.currentTarget as HTMLElement).style.background = '#1a1d27'
                 }}
                 onMouseLeave={(e) => {
                   ;(e.currentTarget as HTMLElement).style.background = rowBg
                 }}
               >
-                {/* Sample ID */}
-                <td
+                <div
                   style={{
                     padding: '8px 10px',
                     fontFamily: 'monospace',
                     fontSize: '11px',
                     color: '#9ca3b8',
                     whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
                   }}
                 >
                   {item.sample_key.split('#').at(-1)}
-                </td>
+                </div>
 
-                {/* Class */}
-                <td
+                <div
                   style={{
                     padding: '8px 10px',
                     fontSize: '11px',
                     fontWeight: 500,
                     color: '#9ca3b8',
-                    maxWidth: '160px',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
                   }}
                 >
                   {item.entity_type}
-                </td>
+                </div>
 
-                {/* Value */}
-                <td
+                <div
                   style={{
                     padding: '8px 10px',
                     fontFamily: 'monospace',
                     fontSize: '11px',
                     color: '#e4e6ed',
-                    maxWidth: '180px',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
                   }}
                 >
                   {item.value}
-                </td>
+                </div>
 
-                {/* Verdict badge */}
-                <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>
+                <div style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>
                   {badge && (
                     <span
                       style={{
@@ -229,10 +274,9 @@ export function ReviewTable({
                       {badge.label}
                     </span>
                   )}
-                </td>
+                </div>
 
-                {/* Status / decision */}
-                <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>
+                <div style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>
                   {decisionLabel ? (
                     <span
                       style={{
@@ -262,10 +306,9 @@ export function ReviewTable({
                       {item.status}
                     </span>
                   )}
-                </td>
+                </div>
 
-                {/* Lock */}
-                <td style={{ padding: '8px 10px' }}>
+                <div style={{ padding: '8px 10px' }}>
                   <span
                     style={{
                       fontSize: '11px',
@@ -280,12 +323,12 @@ export function ReviewTable({
                   >
                     {lockLabel}
                   </span>
-                </td>
-              </tr>
+                </div>
+              </div>
             )
           })}
-        </tbody>
-      </table>
+        </div>
+      </div>
     </div>
   )
 }

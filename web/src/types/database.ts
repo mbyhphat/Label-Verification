@@ -87,6 +87,12 @@ export type Database = {
         }
         Returns: ReviewBundle
       }
+      list_review_items: {
+        Args: {
+          p_dataset_id: string
+        }
+        Returns: ReviewItem[]
+      }
       submit_review_decision: {
         Args: {
           p_review_item_id: string

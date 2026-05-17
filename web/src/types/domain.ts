@@ -99,8 +99,8 @@ export type ReviewItem = {
   reviewer_note: string | null
   decided_by: string | null
   decided_at: string | null
-  raw_audit: Json
-  raw_export_span: Json
+  raw_audit?: Json
+  raw_export_span?: Json
   version: number
   updated_at: string
   created_at: string
