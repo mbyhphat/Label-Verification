@@ -4,6 +4,7 @@ import type {
   Json,
   LabelingProject,
   PiiEntityType,
+  ProjectClassStatistic,
   ProjectPiiConfig,
   ProjectPiiConfigResponse,
   ProjectMember,
@@ -147,6 +148,12 @@ export type Database = {
         }
         Returns: ProjectPiiConfigResponse
       }
+      list_project_class_statistics: {
+        Args: {
+          p_project_id: string
+        }
+        Returns: ProjectClassStatistic[]
+      }
     }
     Enums: Record<string, never>
     CompositeTypes: Record<string, never>
@@ -159,6 +166,7 @@ export type {
   LabelingProject,
   PiiEntityType,
   ProjectMember,
+  ProjectClassStatistic,
   ProjectPiiConfig,
   ReviewItem,
   ReviewSample,

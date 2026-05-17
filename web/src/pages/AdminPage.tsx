@@ -27,6 +27,7 @@ import {
 import { FolderUploadZone } from '@/features/admin/components/FolderUploadZone'
 import { ImportPreview } from '@/features/admin/components/ImportPreview'
 import { ImportProgress } from '@/features/admin/components/ImportProgress'
+import { ProjectClassStatsPanel } from '@/features/admin/components/ProjectClassStatsPanel'
 import { ProjectPiiConfigPanel } from '@/features/admin/components/ProjectPiiConfigPanel'
 
 type AdminPageProps = {
@@ -63,6 +64,7 @@ export function AdminPage({
   const [importing, setImporting] = useState(false)
   const [importProgress, setImportProgress] = useState<ImportProgressUpdate | null>(null)
   const [result, setResult] = useState<ImportResult | null>(null)
+  const [classStatsRefreshKey, setClassStatsRefreshKey] = useState(0)
   const [error, setError] = useState('')
   const activeProjectId =
     selectedProjectId && adminProjectIds.has(selectedProjectId)
@@ -133,6 +135,7 @@ export function AdminPage({
       })
       setResult(nextResult)
       setReplace(false)
+      setClassStatsRefreshKey((value) => value + 1)
       setExisting(await checkExistingDataset(activeProjectId, folder))
       setImportProgress(null)
     } catch (err) {
@@ -230,7 +233,19 @@ export function AdminPage({
             )}
           </section>
 
-          {activeProjectId && <ProjectPiiConfigPanel projectId={activeProjectId} />}
+          {activeProjectId && (
+            <>
+              <ProjectPiiConfigPanel
+                projectId={activeProjectId}
+                onConfigChanged={() => setClassStatsRefreshKey((value) => value + 1)}
+              />
+              <ProjectClassStatsPanel
+                key={activeProjectId}
+                projectId={activeProjectId}
+                refreshKey={classStatsRefreshKey}
+              />
+            </>
+          )}
 
           <div className="grid gap-5 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
             <div className="space-y-5">

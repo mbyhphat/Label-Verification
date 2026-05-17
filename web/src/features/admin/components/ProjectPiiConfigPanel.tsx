@@ -18,9 +18,10 @@ import { getProjectPiiConfig, updateProjectPiiConfig } from '../api/pii-config.a
 
 type ProjectPiiConfigPanelProps = {
   projectId: string
+  onConfigChanged?: () => void
 }
 
-export function ProjectPiiConfigPanel({ projectId }: ProjectPiiConfigPanelProps) {
+export function ProjectPiiConfigPanel({ projectId, onConfigChanged }: ProjectPiiConfigPanelProps) {
   const [config, setConfig] = useState<ProjectPiiConfigResponse | null>(null)
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
   const [query, setQuery] = useState('')
@@ -160,6 +161,7 @@ export function ProjectPiiConfigPanel({ projectId }: ProjectPiiConfigPanelProps)
       setConfig(nextConfig)
       setSelected(new Set(nextConfig.required_entity_types))
       setNotice('Saved PII class requirements.')
+      onConfigChanged?.()
     } catch (err) {
       setError(formatSupabaseError(err))
     } finally {

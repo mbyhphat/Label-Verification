@@ -49,6 +49,15 @@ export type ProjectPiiConfigResponse = {
   updated_at: string | null
 }
 
+export type ProjectClassStatistic = {
+  entity_type: string
+  item_count: number
+  pending_count: number
+  completed_count: number
+  skipped_count: number
+  dataset_count: number
+}
+
 export type Dataset = {
   id: string
   project_id: string
