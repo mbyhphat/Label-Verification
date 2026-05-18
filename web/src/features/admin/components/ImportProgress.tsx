@@ -28,7 +28,9 @@ export function ImportProgress({ result, error, progress }: ImportProgressProps)
             <h2 className="text-base font-semibold">Importing</h2>
             <p className="mt-1 text-sm text-muted-foreground">
               {progress.phase === 'samples'
-                ? 'Uploading samples'
+                ? progress.sampleChunks && progress.sampleChunks > 1
+                  ? `Uploading samples (batch ${progress.sampleChunk ?? 0}/${progress.sampleChunks})`
+                  : 'Uploading samples'
                 : `Uploading ${progress.entityType ?? 'entity'} (${progress.completed}/${progress.total})`}
             </p>
           </div>

@@ -373,28 +373,28 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
   const headerStats =
     !loadingItems && items.length > 0 ? (
       <div
-        className="hidden items-center gap-2 overflow-hidden text-[12px] sm:flex"
+        className="hidden items-center gap-2.5 overflow-hidden text-[13px] sm:flex"
         style={{ fontVariantNumeric: 'tabular-nums' }}
       >
-        <span style={{ color: '#2e3345' }}>│</span>
+        <span style={{ color: '#343b50' }}>│</span>
         <span style={{ color: '#60a5fa' }}>{verdictCounts.total} total</span>
-        <span style={{ color: '#2e3345' }}>·</span>
+        <span style={{ color: '#343b50' }}>·</span>
         <span className="inline-flex items-center gap-1" style={{ color: '#34d399' }}>
-          <Check aria-hidden="true" className="h-3 w-3" />
+          <Check aria-hidden="true" className="h-3.5 w-3.5" />
           {verdictCounts.correct}
         </span>
-        <span style={{ color: '#2e3345' }}>·</span>
+        <span style={{ color: '#343b50' }}>·</span>
         <span className="inline-flex items-center gap-1" style={{ color: '#f87171' }}>
-          <XCircle aria-hidden="true" className="h-3 w-3" />
+          <XCircle aria-hidden="true" className="h-3.5 w-3.5" />
           {verdictCounts.wrong}
         </span>
-        <span style={{ color: '#2e3345' }}>·</span>
+        <span style={{ color: '#343b50' }}>·</span>
         <span className="inline-flex items-center gap-1" style={{ color: '#fbbf24' }}>
-          <AlertTriangle aria-hidden="true" className="h-3 w-3" />
+          <AlertTriangle aria-hidden="true" className="h-3.5 w-3.5" />
           {verdictCounts.unrealistic}
         </span>
-        <span style={{ color: '#2e3345' }}>·</span>
-        <span style={{ color: '#9ca3b8' }}>
+        <span style={{ color: '#343b50' }}>·</span>
+        <span style={{ color: '#aeb7c8' }}>
           {stats.completed}/{stats.total} reviewed
         </span>
       </div>
@@ -404,7 +404,7 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
   return (
     <div
       className="flex flex-col h-svh"
-      style={{ background: '#0f1117', color: '#e4e6ed' }}
+      style={{ background: '#0d1017', color: '#edf0f7' }}
     >
       <AppHeader
         canShowAdmin={canShowAdmin}
@@ -427,19 +427,19 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
         <section className="flex flex-col flex-1 overflow-hidden min-w-0">
           {/* ── Toolbar ── */}
           <div
-            className="px-5 py-3 shrink-0 flex flex-col gap-2.5"
-            style={{ background: '#1a1d27', borderBottom: '1px solid #2e3345' }}
+            className="px-6 py-4 shrink-0 flex flex-col gap-3"
+            style={{ background: '#191e2a', borderBottom: '1px solid #343b50' }}
           >
             {/* Dataset name + entity type selector */}
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
                 <p
-                  className="text-[10px] font-semibold uppercase tracking-widest mb-0.5"
-                  style={{ color: '#9ca3b8' }}
+                  className="text-[11px] font-semibold uppercase tracking-widest mb-1"
+                  style={{ color: '#aeb7c8' }}
                 >
                   Active dataset
                 </p>
-                <h2 className="text-[13px] font-semibold truncate" style={{ color: '#e4e6ed' }}>
+                <h2 className="truncate text-base font-semibold" style={{ color: '#edf0f7' }}>
                   {activeDataset
                     ? `${activeDataset.source_key} · ${activeDataset.language}`
                     : 'No dataset selected'}
@@ -449,7 +449,7 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
                 value={activeEntityType ?? ALL_ENTITY_TYPES}
                 onValueChange={(v) => selectEntityType(v === ALL_ENTITY_TYPES ? null : v)}
               >
-                <SelectTrigger size="sm" className="w-44 text-xs shrink-0">
+                <SelectTrigger size="sm" className="w-56 shrink-0 text-sm">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -475,13 +475,13 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
                       type="button"
                       aria-pressed={isActive}
                       onClick={() => setVerdictFilter(pill.value)}
-                      className="cursor-pointer select-none px-3 py-1 text-[12px] transition-[background-color,border-color,color] focus-visible:z-10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#60a5fa]"
+                      className="cursor-pointer select-none px-3.5 py-2 text-sm font-medium transition-[background-color,border-color,color] focus-visible:z-10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#60a5fa]"
                       style={{
                         border: '1px solid',
-                        borderColor: isActive ? '#60a5fa' : '#2e3345',
+                        borderColor: isActive ? '#60a5fa' : '#343b50',
                         borderLeft:
                           idx > 0
-                            ? `1px solid ${isActive ? '#60a5fa' : '#2e3345'}`
+                            ? `1px solid ${isActive ? '#60a5fa' : '#343b50'}`
                             : undefined,
                         marginLeft: idx > 0 ? '-1px' : 0,
                         borderRadius:
@@ -492,8 +492,8 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
                               : '0',
                         position: 'relative',
                         zIndex: isActive ? 1 : 0,
-                        background: isActive ? 'rgba(96,165,250,0.12)' : '#1a1d27',
-                        color: isActive ? '#60a5fa' : '#9ca3b8',
+                        background: isActive ? 'rgba(96,165,250,0.12)' : '#191e2a',
+                        color: isActive ? '#60a5fa' : '#aeb7c8',
                       }}
                     >
                       {pill.label}
@@ -506,7 +506,7 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
               <div className="relative">
                 <Search
                   aria-hidden="true"
-                  className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#9ca3b8]"
+                  className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#aeb7c8]"
                 />
                 <input
                   type="search"
@@ -516,20 +516,20 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Search value, reason, label…"
-                  className="rounded-md py-1 pl-8 pr-3 text-[12px] transition-[border-color,background-color,color] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#60a5fa]"
+                  className="rounded-lg py-2 pl-10 pr-3.5 text-sm transition-[border-color,background-color,color] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#60a5fa]"
                   style={{
-                    background: '#11141c',
-                    border: '1px solid #2e3345',
-                    color: '#e4e6ed',
-                    width: '240px',
+                    background: '#111722',
+                    border: '1px solid #343b50',
+                    color: '#edf0f7',
+                    width: 'min(320px, 100%)',
                   }}
                   onFocus={(e) => (e.currentTarget.style.borderColor = '#60a5fa')}
-                  onBlur={(e) => (e.currentTarget.style.borderColor = '#2e3345')}
+                  onBlur={(e) => (e.currentTarget.style.borderColor = '#343b50')}
                 />
               </div>
 
               {/* Result count */}
-              <span className="ml-auto text-[12px]" style={{ color: '#9ca3b8' }}>
+              <span className="ml-auto text-sm" style={{ color: '#aeb7c8' }}>
                 {filteredItems.length} / {items.length}
               </span>
             </div>
@@ -538,10 +538,10 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
           {/* ── Notice banner ── */}
           {notice && (
             <div
-              className="px-5 py-2 text-xs shrink-0"
+              className="px-6 py-3 text-sm shrink-0"
               style={{
                 background: 'rgba(251,191,36,0.08)',
-                borderBottom: '1px solid #2e3345',
+                borderBottom: '1px solid #343b50',
                 color: '#fbbf24',
               }}
               role="status"
@@ -554,7 +554,7 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
           {/* ── Table or loader ── */}
           {loadingItems ? (
             <div className="flex-1 flex items-center justify-center">
-              <p className="text-sm" style={{ color: '#9ca3b8' }}>
+              <p className="text-base" style={{ color: '#aeb7c8' }}>
                 Loading review items…
               </p>
             </div>

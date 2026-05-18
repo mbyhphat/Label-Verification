@@ -141,7 +141,7 @@ const LABEL_PALETTE = [
 type LabelColors = (typeof LABEL_PALETTE)[number]
 
 const LABEL_SELECT_TRIGGER_CLASS_NAME =
-  'w-44 max-w-full border-border/80 bg-background/95 px-2.5 text-xs font-semibold text-foreground shadow-sm hover:border-primary/50 hover:bg-background focus-visible:border-primary/70 focus-visible:ring-primary/25 data-placeholder:text-muted-foreground'
+  'w-52 max-w-full border-border/80 bg-background/95 px-3 text-sm font-semibold text-foreground shadow-sm hover:border-primary/50 hover:bg-background focus-visible:border-primary/70 focus-visible:ring-primary/25 data-placeholder:text-muted-foreground'
 
 function sortLabelOptions(labels: string[]): string[] {
   return [...labels].sort((a, b) =>
@@ -528,9 +528,9 @@ export function SampleMaskEditor({
   const selectionOverlaps = selectionOverlapsExisting(selectedIndex)
 
   return (
-    <Card size="sm" className="mb-5 rounded-xl border border-border/80 bg-card shadow-sm">
-      <CardHeader className="pb-3">
-        <CardTitle className="flex items-center gap-2 text-sm font-semibold">
+    <Card size="sm" className="mb-6 rounded-xl border border-border/80 bg-card shadow-sm">
+      <CardHeader className="pb-4">
+        <CardTitle className="flex items-center gap-2 text-base font-semibold">
           <Tag className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
           Edit Text & Labels
         </CardTitle>
@@ -551,7 +551,7 @@ export function SampleMaskEditor({
         {/* ── Source text with colored, labeled spans ── */}
         <div ref={sourceEditorRef} className="flex flex-col gap-3">
           <div className="flex items-center justify-between gap-2">
-            <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70">
+            <span className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/70">
               Source text
             </span>
             <Button
@@ -572,7 +572,7 @@ export function SampleMaskEditor({
               value={sourceText}
               disabled={!canEdit}
               spellCheck={false}
-              className="max-h-72 min-h-56 resize-y border-border/70 bg-background/80 font-mono text-[13px] leading-relaxed text-foreground"
+              className="max-h-80 min-h-64 resize-y border-border/70 bg-background/80 font-mono text-sm leading-7 text-foreground"
               onChange={(event) => updateSourceText(event.currentTarget.value)}
             />
           ) : (
@@ -581,8 +581,8 @@ export function SampleMaskEditor({
               role="region"
               aria-label="Sample source text — select text to tag PII"
               className={cn(
-                'max-h-56 overflow-y-auto rounded-lg border border-border/70 bg-muted/20 p-3.5',
-                'whitespace-pre-wrap break-words text-[13px] leading-[1.9] text-foreground',
+                'max-h-64 overflow-y-auto rounded-lg border border-border/70 bg-muted/20 p-4',
+                'whitespace-pre-wrap break-words text-sm leading-8 text-foreground',
                 'selection:bg-primary/20 selection:text-foreground',
                 'transition-colors duration-150 focus-within:border-primary/40',
               )}
@@ -634,7 +634,7 @@ export function SampleMaskEditor({
         </div>
 
         {/* ── Main editing area ── */}
-        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_210px]">
+        <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_240px]">
 
           {/* Action panel — context-sensitive */}
           <div
@@ -648,10 +648,10 @@ export function SampleMaskEditor({
             {/* Idle */}
             {actionMode === 'idle' && (
               <div className="flex flex-1 flex-col items-center justify-center gap-3 px-5 py-7 text-center">
-                <span className="flex h-9 w-9 items-center justify-center rounded-full border border-primary/20 bg-primary/10 text-primary shadow-sm">
+                <span className="flex h-10 w-10 items-center justify-center rounded-full border border-primary/20 bg-primary/10 text-primary shadow-sm">
                   <MousePointer2 className="h-5 w-5" aria-hidden="true" />
                 </span>
-                <p className="max-w-[240px] text-[12px] font-medium leading-relaxed text-foreground/80">
+                <p className="max-w-[280px] text-[13px] font-medium leading-relaxed text-foreground/85">
                   Select text above to tag it, or click a highlighted span to edit it.
                 </p>
               </div>
@@ -661,20 +661,20 @@ export function SampleMaskEditor({
             {actionMode === 'selection' && (
               <div className="flex flex-col gap-3 p-3">
                 <div className="flex min-w-0 items-center gap-1.5">
-                  <span className="shrink-0 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+                  <span className="shrink-0 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60">
                     Selected
                   </span>
                   <span
-                    className="min-w-0 truncate rounded bg-background/60 px-1.5 py-0.5 font-mono text-[11px] text-foreground"
+                    className="min-w-0 truncate rounded-md bg-background/60 px-2 py-1 font-mono text-xs text-foreground"
                     title={selectedText}
                   >
                     "{textPreview(selectedText)}"
                   </span>
                 </div>
 
-                <div className="flex flex-wrap items-end gap-2">
+                <div className="flex flex-wrap items-end gap-2.5">
                   <div className="flex min-w-0 flex-col gap-1">
-                    <span className="text-[11px] font-medium text-muted-foreground">Tag as</span>
+                    <span className="text-xs font-medium text-muted-foreground">Tag as</span>
                     <Select
                       value={effectiveSelectedLabel}
                       onValueChange={(value) => {
@@ -722,7 +722,7 @@ export function SampleMaskEditor({
                 </div>
 
                 {selectionOverlaps && (
-                  <p className="text-[11px] text-destructive" aria-live="polite">
+                  <p className="text-xs text-destructive" aria-live="polite">
                     Selection overlaps an existing span.
                   </p>
                 )}
@@ -743,7 +743,7 @@ export function SampleMaskEditor({
                     </span>
                     <span className="text-border" aria-hidden="true">/</span>
                     <span
-                      className="min-w-0 truncate font-mono text-[11px] text-muted-foreground"
+                      className="min-w-0 truncate font-mono text-xs text-muted-foreground"
                       title={selectedEntry.value}
                     >
                       {textPreview(selectedEntry.value)}
@@ -762,9 +762,9 @@ export function SampleMaskEditor({
                   </Button>
                 </div>
 
-                <div className="flex flex-wrap items-end gap-2">
+                <div className="flex flex-wrap items-end gap-2.5">
                   <div className="flex min-w-0 flex-col gap-1">
-                    <span className="text-[11px] font-medium text-muted-foreground">Change label</span>
+                    <span className="text-xs font-medium text-muted-foreground">Change label</span>
                     <Select
                       value={effectiveSelectedLabel}
                       onValueChange={(value) => {
@@ -844,7 +844,7 @@ export function SampleMaskEditor({
                 </div>
 
                 {selectionOverlaps && (
-                  <p className="text-[11px] text-destructive" aria-live="polite">
+                  <p className="text-xs text-destructive" aria-live="polite">
                     Selection overlaps another span.
                   </p>
                 )}
@@ -855,7 +855,7 @@ export function SampleMaskEditor({
           {/* Span list */}
           <div className="flex min-h-0 flex-col gap-2 rounded-lg border border-border/60 bg-card/50 p-2">
             <div className="flex items-center justify-between gap-2 px-1">
-              <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+              <span className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60">
                 Spans
               </span>
               <Badge
@@ -867,11 +867,11 @@ export function SampleMaskEditor({
               </Badge>
             </div>
 
-            <div className="flex max-h-48 flex-col gap-1 overflow-y-auto">
+            <div className="flex max-h-56 flex-col gap-1.5 overflow-y-auto">
               {draftMask.length === 0 ? (
-                <div className="flex flex-col items-center justify-center gap-1.5 rounded-md border border-dashed border-border/40 px-3 py-5">
+                <div className="flex flex-col items-center justify-center gap-2 rounded-md border border-dashed border-border/40 px-3 py-6">
                   <Tag className="h-4 w-4 text-muted-foreground/25" aria-hidden="true" />
-                  <p className="text-center text-[11px] text-muted-foreground/45">
+                  <p className="text-center text-xs text-muted-foreground/45">
                     No spans tagged yet
                   </p>
                 </div>
@@ -888,7 +888,7 @@ export function SampleMaskEditor({
                       aria-label={`Select ${entry.label ?? 'span'}: ${entry.value ?? ''}`}
                       aria-pressed={isSelected}
                       className={cn(
-                        'group flex min-w-0 cursor-pointer items-center gap-1.5 rounded-md border px-2 py-1.5',
+                        'group flex min-w-0 cursor-pointer items-center gap-2 rounded-md border px-2.5 py-2',
                         'transition-all duration-150 ease-out',
                         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-1',
                         isSelected
@@ -909,7 +909,7 @@ export function SampleMaskEditor({
                       <span className="flex min-w-0 flex-1 flex-col">
                         <span
                           className={cn(
-                            'truncate text-[10px] font-bold uppercase tracking-wide',
+                            'truncate text-[11px] font-bold uppercase tracking-wide',
                             isSelected ? 'text-foreground' : 'text-foreground/80',
                           )}
                         >
@@ -917,7 +917,7 @@ export function SampleMaskEditor({
                         </span>
                         <span
                           className={cn(
-                            'truncate font-mono text-[10px]',
+                            'truncate font-mono text-[11px]',
                             isSelected ? 'text-muted-foreground' : 'text-muted-foreground/60',
                           )}
                         >
@@ -954,7 +954,7 @@ export function SampleMaskEditor({
         {/* Global validation errors */}
         {(hasOverlap || invalidCount > 0) && (
           <p
-            className="rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-[11px] text-destructive"
+            className="rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2.5 text-xs text-destructive"
             aria-live="polite"
           >
             {hasOverlap

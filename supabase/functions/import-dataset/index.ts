@@ -1,5 +1,5 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
-import { createClient } from '@supabase/supabase-js'
+import { createClient } from 'npm:@supabase/supabase-js@2'
 
 type JsonObject = Record<string, unknown>
 
@@ -43,6 +43,8 @@ type EntityPayload = {
 
 const VALID_VERDICTS = new Set(['CORRECT', 'WRONG_LABEL', 'UNREALISTIC_VALUE'])
 const SAMPLE_REF_RE = /^(?<prefix>.+)#(?<index>\d+)$/
+const SAMPLE_IMPORT_BATCH_SIZE = 250
+const POSTGRES_JSON_FORBIDDEN_CHAR = '\u0000'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -116,15 +118,9 @@ Deno.serve(async (req) => {
 
     if (mode === 'dataset') {
       plan = await buildDatasetBootstrapPayload(files, paths)
-      const response = await supabase.rpc('import_dataset_payload', {
-        p_project_id: projectId,
-        p_manifest: plan.manifest,
-        p_samples: plan.samples,
-        p_entities: [],
-        p_replace: false,
-      })
-      data = response.data
-      error = response.error
+      const batchResult = await importSamplesInBatches(supabase, projectId, plan)
+      data = batchResult.data
+      error = batchResult.error
     } else if (mode === 'entity') {
       plan = await buildEntityImportPayload(files, paths)
       if (plan.entities.length !== 1) {
@@ -197,6 +193,49 @@ Deno.serve(async (req) => {
   }
 })
 
+async function importSamplesInBatches(
+  supabase: ReturnType<typeof createClient>,
+  projectId: string,
+  plan: {
+    manifest: JsonObject
+    samples: JsonObject[]
+    warnings: string[]
+  },
+): Promise<{ data: unknown; error: { message?: string } | null }> {
+  const samples = plan.samples
+  const total = samples.length
+  let lastData: unknown = null
+
+  for (let offset = 0; offset < total; offset += SAMPLE_IMPORT_BATCH_SIZE) {
+    const chunk = samples.slice(offset, offset + SAMPLE_IMPORT_BATCH_SIZE)
+    const finalize = offset + chunk.length >= total
+    const response = await supabase.rpc('import_dataset_samples_batch', {
+      p_project_id: projectId,
+      p_manifest: plan.manifest,
+      p_samples: chunk,
+      p_chunk_offset: offset,
+      p_total_sample_count: total,
+      p_finalize: finalize,
+    })
+
+    if (response.error) {
+      return { data: null, error: response.error }
+    }
+
+    lastData = response.data
+  }
+
+  return {
+    data: lastData
+      ? {
+          ...asObject(lastData),
+          warnings: [...plan.warnings, ...jsonStringArray(asObject(lastData).warnings)],
+        }
+      : lastData,
+    error: null,
+  }
+}
+
 function jsonResponse(payload: unknown, status = 200): Response {
   return new Response(JSON.stringify(payload), {
     status,
@@ -257,8 +296,9 @@ async function buildImportPayload(files: File[], paths: string[] | null): Promis
 
   const manifest = asObject(await readJson(manifestFile))
   const samplesJson = await readJson(samplesFile)
-  const samples = normalizeOutputSamples(samplesJson)
+  const [samples, sampleSanitizeWarnings] = sanitizeOutputSamples(normalizeOutputSamples(samplesJson))
   const samplesSha256 = await sha256File(samplesFile.file)
+  const warnings: string[] = [...sampleSanitizeWarnings]
 
   const entityFiles = discoverEntityFiles(fileMap)
   if (entityFiles.length === 0) {
@@ -266,7 +306,6 @@ async function buildImportPayload(files: File[], paths: string[] | null): Promis
   }
 
   const entities: EntityPayload[] = []
-  const warnings: string[] = []
 
   let firstLanguage: string | null = null
   let firstPrefix: string | null = null
@@ -274,8 +313,12 @@ async function buildImportPayload(files: File[], paths: string[] | null): Promis
   for (const entityFile of entityFiles) {
     const auditJson = await readJson(entityFile.audit)
     const exportJson = await readJson(entityFile.exportFile)
-    const auditResults = normalizeAuditResults(auditJson)
-    const exportSpans = normalizeExportSpans(exportJson)
+    const [auditResults, auditSanitizeWarnings] = sanitizeAuditResults(normalizeAuditResults(auditJson))
+    const [exportSpans, exportSanitizeWarnings] = sanitizeExportSpans(normalizeExportSpans(exportJson))
+    warnings.push(
+      ...auditSanitizeWarnings.map((warning) => `${entityFile.entityType}: ${warning}`),
+      ...exportSanitizeWarnings.map((warning) => `${entityFile.entityType}: ${warning}`),
+    )
     const exportObject = asObject(exportJson)
     const entityType = entityFile.entityType || stringValue(exportObject.type)
 
@@ -401,7 +444,7 @@ async function buildDatasetBootstrapPayload(files: File[], paths: string[] | nul
   }
 
   const manifest = asObject(await readJson(manifestFile))
-  const samples = normalizeOutputSamples(await readJson(samplesFile))
+  const [samples, sampleSanitizeWarnings] = sanitizeOutputSamples(normalizeOutputSamples(await readJson(samplesFile)))
   const samplesSha256 = await sha256File(samplesFile.file)
   const dataset = asObject(manifest.dataset)
 
@@ -436,7 +479,7 @@ async function buildDatasetBootstrapPayload(files: File[], paths: string[] | nul
     manifest,
     samples,
     entities: [],
-    warnings: [],
+    warnings: sampleSanitizeWarnings,
     preview: {
       source_key: dataset.source_key,
       language: dataset.language,
@@ -499,8 +542,12 @@ async function buildEntityImportPayload(files: File[], paths: string[] | null): 
   for (const entityFile of entityFiles) {
     const auditJson = await readJson(entityFile.audit)
     const exportJson = await readJson(entityFile.exportFile)
-    const auditResults = normalizeAuditResults(auditJson)
-    const exportSpans = normalizeExportSpans(exportJson)
+    const [auditResults, auditSanitizeWarnings] = sanitizeAuditResults(normalizeAuditResults(auditJson))
+    const [exportSpans, exportSanitizeWarnings] = sanitizeExportSpans(normalizeExportSpans(exportJson))
+    warnings.push(
+      ...auditSanitizeWarnings.map((warning) => entityFile.entityType + ': ' + warning),
+      ...exportSanitizeWarnings.map((warning) => entityFile.entityType + ': ' + warning),
+    )
     const exportObject = asObject(exportJson)
     const entityType = entityFile.entityType || stringValue(exportObject.type)
 
@@ -641,6 +688,65 @@ function discoverEntityFiles(fileMap: Map<string, ImportFile>): EntityFileGroup[
   return result.sort((a, b) => a.entityType.localeCompare(b.entityType))
 }
 
+function countForbiddenJsonChars(value: unknown): number {
+  if (typeof value === 'string') {
+    let count = 0
+    for (const char of value) {
+      if (char === POSTGRES_JSON_FORBIDDEN_CHAR) count += 1
+    }
+    return count
+  }
+  if (Array.isArray(value)) {
+    return value.reduce((total, item) => total + countForbiddenJsonChars(item), 0)
+  }
+  if (isObject(value)) {
+    return Object.values(value).reduce((total, item) => total + countForbiddenJsonChars(item), 0)
+  }
+  return 0
+}
+
+function sanitizeForPostgresJson<T>(value: T): T {
+  if (typeof value === 'string') {
+    return value.includes(POSTGRES_JSON_FORBIDDEN_CHAR)
+      ? (value.replaceAll(POSTGRES_JSON_FORBIDDEN_CHAR, '') as T)
+      : value
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeForPostgresJson(item)) as T
+  }
+  if (isObject(value)) {
+    const next: JsonObject = {}
+    for (const [key, item] of Object.entries(value)) {
+      next[key] = sanitizeForPostgresJson(item)
+    }
+    return next as T
+  }
+  return value
+}
+
+function sanitizePayload<T>(label: string, value: T): [T, string[]] {
+  const removed = countForbiddenJsonChars(value)
+  if (removed === 0) return [value, []]
+  return [
+    sanitizeForPostgresJson(value),
+    [
+      `Removed ${removed} NUL (\\u0000) character(s) from ${label} for Postgres jsonb compatibility.`,
+    ],
+  ]
+}
+
+function sanitizeOutputSamples(samples: JsonObject[]): [JsonObject[], string[]] {
+  return sanitizePayload('samples', samples)
+}
+
+function sanitizeAuditResults(results: JsonObject[]): [JsonObject[], string[]] {
+  return sanitizePayload('audit', results)
+}
+
+function sanitizeExportSpans(spans: JsonObject[]): [JsonObject[], string[]] {
+  return sanitizePayload('export', spans)
+}
+
 function normalizeOutputSamples(payload: unknown): JsonObject[] {
   const root = asObject(payload)
   const samples =
@@ -762,7 +868,18 @@ function buildReviewRows(
   const warnings: string[] = []
   let missingSpans = 0
 
-  const reviewRows = auditResults.map((item, index) => {
+  const reviewRows: ReviewRow[] = []
+
+  for (let index = 0; index < auditResults.length; index += 1) {
+    const item = auditResults[index]
+    const value = String(item.value ?? '')
+    if (!value) {
+      warnings.push(
+        `Skipped audit result ${index} with empty value (sample_id ${String(item.sample_id ?? '')}).`,
+      )
+      continue
+    }
+
     const sample = resolveSampleForItem(item, sampleLookup)
     if (!sample) {
       throw new ImportValidationError(
@@ -773,10 +890,10 @@ function buildReviewRows(
     const span = findMatchingSpan(item, spanLookup, spanUsage)
     if (!span) missingSpans += 1
 
-    return {
+    reviewRows.push({
       sample_index: sample.sample_index,
       audit_record_id: intOrNull(item.id),
-      value: String(item.value),
+      value,
       start_offset: pickFirstInt(asObject(span).start, item.start),
       end_offset: pickFirstInt(asObject(span).end, item.end),
       verdict: String(item.verdict),
@@ -785,8 +902,8 @@ function buildReviewRows(
       replacement_value: stringValue(item.replacement_value),
       raw_audit: item,
       raw_export_span: asObject(span),
-    }
-  })
+    })
+  }
 
   if (missingSpans > 0) {
     warnings.push(`${missingSpans} review items had no matching export span.`)

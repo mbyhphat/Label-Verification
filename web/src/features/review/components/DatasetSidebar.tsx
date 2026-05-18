@@ -16,43 +16,43 @@ export function DatasetSidebar({
   return (
     <aside
       className="shrink-0 flex flex-col overflow-hidden"
-      style={{ width: '232px', borderRight: '1px solid #2e3345', background: '#171a23' }}
+      style={{ width: '280px', borderRight: '1px solid #343b50', background: '#171c27' }}
     >
       {/* Header */}
       <div
-        className="flex items-center justify-between px-4 py-3"
-        style={{ borderBottom: '1px solid #2e3345' }}
+        className="flex items-center justify-between px-5 py-4"
+        style={{ borderBottom: '1px solid #343b50' }}
       >
         <span
-          className="text-[10px] font-semibold uppercase tracking-widest"
-          style={{ color: '#9ca3b8' }}
+          className="text-[11px] font-semibold uppercase tracking-widest"
+          style={{ color: '#aeb7c8' }}
         >
           Datasets
         </span>
         <span
-          className="rounded-full border px-2 py-0.5 text-[11px] font-medium tabular-nums"
-          style={{ background: '#11141c', borderColor: '#2e3345', color: '#9ca3b8' }}
+          className="rounded-full border px-2.5 py-1 text-xs font-medium tabular-nums"
+          style={{ background: '#111722', borderColor: '#343b50', color: '#aeb7c8' }}
         >
           {datasets.length}
         </span>
       </div>
 
       {/* List */}
-      <div className="flex-1 overflow-y-auto py-1">
+      <div className="flex-1 overflow-y-auto py-2">
         {loading && (
-          <div className="px-4 py-3 space-y-1.5">
+          <div className="flex flex-col gap-2 px-5 py-4">
             {[1, 2, 3].map((n) => (
               <div
                 key={n}
-                className="h-10 rounded animate-pulse"
-                style={{ background: '#232733' }}
+                className="h-12 rounded-md animate-pulse"
+                style={{ background: '#252b38' }}
               />
             ))}
           </div>
         )}
 
         {!loading && datasets.length === 0 && (
-          <p className="px-4 py-6 text-xs text-center" style={{ color: '#9ca3b8' }}>
+          <p className="px-5 py-7 text-center text-sm" style={{ color: '#aeb7c8' }}>
             No datasets visible for this user.
           </p>
         )}
@@ -65,29 +65,29 @@ export function DatasetSidebar({
                 key={dataset.id}
                 type="button"
                 onClick={() => onSelectDataset(dataset)}
-                className="group w-full text-left flex flex-col gap-1 transition-[background-color,border-color] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#60a5fa]"
+                className="group w-full text-left flex flex-col gap-1.5 transition-[background-color,border-color] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#60a5fa]"
                 style={{
-                  padding: '9px 13px 9px 13px',
-                  background: isActive ? 'rgba(96,165,250,0.10)' : 'transparent',
-                  borderLeft: `3px solid ${isActive ? '#60a5fa' : 'transparent'}`,
-                  paddingLeft: '13px',
+                  padding: '12px 17px 12px 17px',
+                  background: isActive ? 'rgba(96,165,250,0.14)' : 'transparent',
+                  borderLeft: `4px solid ${isActive ? '#60a5fa' : 'transparent'}`,
+                  paddingLeft: '17px',
                 }}
                 onMouseEnter={(e) => {
-                  if (!isActive) e.currentTarget.style.background = '#232733'
+                  if (!isActive) e.currentTarget.style.background = '#252b38'
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.background = isActive
-                    ? 'rgba(96,165,250,0.10)'
+                    ? 'rgba(96,165,250,0.14)'
                     : 'transparent'
                 }}
               >
                 <span
-                  className="text-[13px] font-semibold truncate"
-                  style={{ color: isActive ? '#60a5fa' : '#e4e6ed' }}
+                  className="truncate text-[15px] font-semibold"
+                  style={{ color: isActive ? '#60a5fa' : '#edf0f7' }}
                 >
                   {dataset.source_key}
                 </span>
-                <span className="truncate text-[11px]" style={{ color: '#9ca3b8' }}>
+                <span className="truncate text-xs" style={{ color: '#aeb7c8' }}>
                   {dataset.language}
                   {dataset.folder ? ` / ${dataset.folder}` : ''}
                 </span>

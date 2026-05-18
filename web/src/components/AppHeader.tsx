@@ -12,16 +12,16 @@ type AppHeaderProps = {
 export function AppHeader({ canShowAdmin, onSignOut, stats, actions }: AppHeaderProps) {
   return (
     <header
-      className="flex h-[52px] shrink-0 items-center justify-between gap-4 px-5"
-      style={{ background: '#1a1d27', borderBottom: '1px solid #2e3345' }}
+      className="flex h-[64px] shrink-0 items-center justify-between gap-5 px-6"
+      style={{ background: '#191e2a', borderBottom: '1px solid #343b50' }}
     >
       <div className="flex min-w-0 items-center gap-4 overflow-hidden">
-        <span className="inline-flex shrink-0 items-center gap-2 text-[14px] font-bold text-[#e4e6ed]">
-          <ShieldCheck aria-hidden="true" className="h-4 w-4 text-[#60a5fa]" />
+        <span className="inline-flex shrink-0 items-center gap-2.5 text-base font-bold text-[#edf0f7]">
+          <ShieldCheck aria-hidden="true" className="h-5 w-5 text-[#60a5fa]" />
           PII Verification
         </span>
 
-        <nav className="flex shrink-0 items-center gap-1 text-[12px]">
+        <nav className="flex shrink-0 items-center gap-1.5 text-sm">
           <HeaderLink to="/">Review</HeaderLink>
           {canShowAdmin && <HeaderLink to="/admin">Admin</HeaderLink>}
         </nav>
@@ -34,9 +34,9 @@ export function AppHeader({ canShowAdmin, onSignOut, stats, actions }: AppHeader
         <button
           type="button"
           onClick={onSignOut}
-          className="inline-flex items-center gap-1.5 rounded-md border border-transparent px-3 py-1.5 text-[12px] text-[#9ca3b8] transition-[background-color,border-color,color] hover:border-[#2e3345] hover:bg-[#232733] hover:text-[#e4e6ed] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#60a5fa]"
+          className="inline-flex items-center gap-2 rounded-lg border border-transparent px-3.5 py-2 text-sm font-medium text-[#aeb7c8] transition-[background-color,border-color,color] hover:border-[#343b50] hover:bg-[#252b38] hover:text-[#edf0f7] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#60a5fa]"
         >
-          <LogOut aria-hidden="true" className="h-3.5 w-3.5" />
+          <LogOut aria-hidden="true" className="h-4 w-4" />
           Sign out
         </button>
       </div>
@@ -50,8 +50,8 @@ function HeaderLink({ to, children }: { to: string; children: ReactNode }) {
       to={to}
       className={({ isActive }) =>
         [
-          'rounded-md px-2.5 py-1.5 font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#60a5fa]',
-          isActive ? 'bg-[#232733] text-[#e4e6ed]' : 'text-[#9ca3b8] hover:bg-[#232733] hover:text-[#e4e6ed]',
+          'rounded-lg px-3 py-2 font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#60a5fa]',
+          isActive ? 'bg-[#252b38] text-[#edf0f7]' : 'text-[#aeb7c8] hover:bg-[#252b38] hover:text-[#edf0f7]',
         ].join(' ')
       }
     >

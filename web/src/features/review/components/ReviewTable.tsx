@@ -15,7 +15,7 @@ type ReviewTableProps = {
 type IconComponent = typeof Check
 
 /** Shared by header row and data rows — absolute-positioned `<tr>` breaks table layout, so we use CSS Grid. */
-const GRID_TEMPLATE_COLUMNS = 'minmax(88px, 12fr) minmax(120px, 18fr) minmax(140px, 38fr) minmax(104px, 14fr) minmax(92px, 12fr) minmax(52px, 6fr)'
+const GRID_TEMPLATE_COLUMNS = 'minmax(116px, 12fr) minmax(144px, 18fr) minmax(220px, 38fr) minmax(124px, 14fr) minmax(112px, 12fr) minmax(72px, 6fr)'
 
 const VERDICT_BADGE: Record<
   string,
@@ -44,7 +44,7 @@ const VERDICT_BADGE: Record<
   },
 }
 
-const ESTIMATE_ROW_HEIGHT = 41
+const ESTIMATE_ROW_HEIGHT = 54
 
 function getLockLabel(sample: ReviewSample | undefined, userId: string): string {
   if (!sample?.locked_by || !sample.locked_until) return 'Free'
@@ -64,13 +64,13 @@ function getDecisionLabel(
 
 const TH_STYLE: CSSProperties = {
   textAlign: 'left',
-  padding: '8px 10px',
-  borderBottom: '2px solid #2e3345',
-  color: '#9ca3b8',
+  padding: '11px 12px',
+  borderBottom: '2px solid #343b50',
+  color: '#aeb7c8',
   fontWeight: 600,
   textTransform: 'uppercase',
-  letterSpacing: '0.3px',
-  fontSize: '10px',
+  letterSpacing: 0,
+  fontSize: '13px',
   whiteSpace: 'nowrap',
   userSelect: 'none',
 }
@@ -105,7 +105,7 @@ export function ReviewTable({
   if (items.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center bg-background">
-        <p className="rounded-md border border-border/80 bg-card px-4 py-3 text-sm text-muted-foreground">
+        <p className="rounded-lg border border-border/80 bg-card px-5 py-4 text-base text-muted-foreground">
           No items match the current filter.
         </p>
       </div>
@@ -114,14 +114,14 @@ export function ReviewTable({
 
   return (
     <div ref={parentRef} className="flex-1 overflow-auto bg-background">
-      <div style={{ width: '100%', minWidth: '780px', fontSize: '12px' }}>
+      <div style={{ width: '100%', minWidth: '960px', fontSize: '14px' }}>
         <div
           style={{
             position: 'sticky',
             top: 0,
             zIndex: 2,
-            background: '#0f1117',
-            borderBottom: '2px solid #2e3345',
+            background: '#0d1017',
+            borderBottom: '2px solid #343b50',
           }}
         >
           <div role="row" style={HEADER_GRID_STYLE}>
@@ -196,7 +196,7 @@ export function ReviewTable({
                   display: 'grid',
                   gridTemplateColumns: GRID_TEMPLATE_COLUMNS,
                   alignItems: 'center',
-                  borderBottom: '1px solid #2e3345',
+                  borderBottom: '1px solid #343b50',
                   cursor: 'pointer',
                   background: rowBg,
                   transition: 'background 0.1s',
@@ -204,7 +204,7 @@ export function ReviewTable({
                   boxShadow: isActive ? 'inset 3px 0 0 #60a5fa' : undefined,
                 }}
                 onMouseEnter={(e) => {
-                  if (!isActive) (e.currentTarget as HTMLElement).style.background = '#1a1d27'
+                  if (!isActive) (e.currentTarget as HTMLElement).style.background = '#191e2a'
                 }}
                 onMouseLeave={(e) => {
                   ;(e.currentTarget as HTMLElement).style.background = rowBg
@@ -212,10 +212,10 @@ export function ReviewTable({
               >
                 <div
                   style={{
-                    padding: '8px 10px',
+                    padding: '11px 12px',
                     fontFamily: 'monospace',
-                    fontSize: '11px',
-                    color: '#9ca3b8',
+                    fontSize: '13px',
+                    color: '#aeb7c8',
                     whiteSpace: 'nowrap',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
@@ -226,10 +226,10 @@ export function ReviewTable({
 
                 <div
                   style={{
-                    padding: '8px 10px',
-                    fontSize: '11px',
+                    padding: '11px 12px',
+                    fontSize: '13px',
                     fontWeight: 500,
-                    color: '#9ca3b8',
+                    color: '#aeb7c8',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
@@ -240,10 +240,10 @@ export function ReviewTable({
 
                 <div
                   style={{
-                    padding: '8px 10px',
+                    padding: '11px 12px',
                     fontFamily: 'monospace',
-                    fontSize: '11px',
-                    color: '#e4e6ed',
+                    fontSize: '13px',
+                    color: '#edf0f7',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
@@ -252,7 +252,7 @@ export function ReviewTable({
                   {item.value}
                 </div>
 
-                <div style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>
+                <div style={{ padding: '11px 12px', whiteSpace: 'nowrap' }}>
                   {badge && (
                     <span
                       style={{
@@ -261,45 +261,45 @@ export function ReviewTable({
                         gap: '4px',
                         padding: '2px 8px',
                         borderRadius: '10px',
-                        fontSize: '10px',
+                        fontSize: '13px',
                         fontWeight: 600,
                         textTransform: 'uppercase',
-                        letterSpacing: '0.3px',
+                        letterSpacing: 0,
                         background: badge.bg,
                         color: badge.color,
                         border: `1px solid ${badge.border}`,
                       }}
                     >
-                      {BadgeIcon && <BadgeIcon aria-hidden="true" className="h-3 w-3" />}
+                      {BadgeIcon && <BadgeIcon aria-hidden="true" className="h-3.5 w-3.5" />}
                       {badge.label}
                     </span>
                   )}
                 </div>
 
-                <div style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>
+                <div style={{ padding: '11px 12px', whiteSpace: 'nowrap' }}>
                   {decisionLabel ? (
                     <span
                       style={{
                         display: 'inline-flex',
                         alignItems: 'center',
                         gap: '4px',
-                        fontSize: '10px',
+                        fontSize: '13px',
                         fontWeight: 600,
                         textTransform: 'uppercase',
-                        letterSpacing: '0.3px',
+                        letterSpacing: 0,
                         color: decisionLabel.color,
                       }}
                     >
                       {DecisionIcon && (
-                        <DecisionIcon aria-hidden="true" className="h-3 w-3" />
+                        <DecisionIcon aria-hidden="true" className="h-3.5 w-3.5" />
                       )}
                       {decisionLabel.label}
                     </span>
                   ) : (
                     <span
                       style={{
-                        fontSize: '11px',
-                        color: '#9ca3b8',
+                        fontSize: '13px',
+                        color: '#aeb7c8',
                         textTransform: 'capitalize',
                       }}
                     >
@@ -308,17 +308,17 @@ export function ReviewTable({
                   )}
                 </div>
 
-                <div style={{ padding: '8px 10px' }}>
+                <div style={{ padding: '11px 12px' }}>
                   <span
                     style={{
-                      fontSize: '11px',
+                      fontSize: '13px',
                       fontWeight: 500,
                       color:
                         lockLabel === 'Yours'
-                          ? '#e4e6ed'
+                          ? '#edf0f7'
                           : lockLabel === 'Locked'
                             ? '#f87171'
-                            : '#9ca3b8',
+                            : '#aeb7c8',
                     }}
                   >
                     {lockLabel}

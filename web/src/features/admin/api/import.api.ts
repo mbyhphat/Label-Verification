@@ -1,3 +1,4 @@
+import { FunctionsHttpError } from '@supabase/supabase-js'
 import { supabase, supabaseConfig } from '@/lib/supabase/client'
 import type {
   Dataset,
@@ -73,6 +74,8 @@ export type ImportProgressUpdate = {
   completed: number
   total: number
   entityType?: string
+  sampleChunk?: number
+  sampleChunks?: number
 }
 
 type ImportFileEntry = ImportFolder['files'][number]
@@ -98,7 +101,14 @@ async function importDatasetStaged(input: {
   const samplesFile = requiredFile(input.folder, 'samples.json')
   const totalEntities = input.folder.entities.length
 
-  input.onProgress?.({ phase: 'samples', completed: 0, total: totalEntities })
+  const sampleChunks = Math.max(1, Math.ceil(input.folder.sampleCount / 250))
+  input.onProgress?.({
+    phase: 'samples',
+    completed: 0,
+    total: totalEntities,
+    sampleChunk: 0,
+    sampleChunks,
+  })
   const bootstrap = await invokeImportFunction({
     mode: 'dataset',
     projectId: input.projectId,
@@ -170,13 +180,45 @@ async function invokeImportFunction(input: {
   const { data, error } = await supabase.functions.invoke<{
     data: ImportResult
     preview?: Json
+    error?: { message?: string; code?: string }
   }>('import-dataset', {
     body: formData,
   })
 
-  if (error) throw error
+  if (error) throw await formatFunctionsInvokeError(error, data)
+  if (data && typeof data === 'object' && 'error' in data && data.error) {
+    const payload = data.error as { message?: string }
+    throw new Error(payload.message || 'Import failed.')
+  }
   if (!data?.data) throw new Error('Import function returned no result.')
   return data.data
+}
+
+async function formatFunctionsInvokeError(
+  error: unknown,
+  data: { error?: { message?: string } } | null,
+): Promise<Error> {
+  if (data?.error?.message) {
+    return new Error(data.error.message)
+  }
+
+  if (error instanceof FunctionsHttpError) {
+    try {
+      const payload = await error.context.json()
+      if (payload && typeof payload === 'object' && 'error' in payload) {
+        const nested = (payload as { error?: { message?: string } }).error
+        if (nested?.message) return new Error(nested.message)
+      }
+      if (payload && typeof payload === 'object' && 'message' in payload) {
+        return new Error(String((payload as { message?: string }).message))
+      }
+    } catch {
+      // Fall through to the generic FunctionsHttpError message.
+    }
+  }
+
+  if (error instanceof Error) return error
+  return new Error('Import failed.')
 }
 
 function requiredFile(folder: ImportFolder, path: string): ImportFileEntry {

@@ -229,7 +229,7 @@ export function ReviewModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-[#05070c]/75 px-3 py-5 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[#05070c]/75 px-4 py-6 backdrop-blur-sm"
       onMouseDown={(e) => {
         if (!isBusy && e.target === e.currentTarget) onClose()
       }}
@@ -238,17 +238,17 @@ export function ReviewModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="review-sample-title"
-        className="w-[720px] max-w-[94vw] max-h-[88vh] overflow-y-auto overscroll-contain rounded-lg border border-[#343a4f] bg-[#171a23] shadow-[0_24px_80px_rgba(0,0,0,0.48)]"
+        className="w-[880px] max-w-[95vw] max-h-[90vh] overflow-y-auto overscroll-contain rounded-xl border border-[#343a4f] bg-[#171c27] shadow-[0_28px_90px_rgba(0,0,0,0.52)]"
       >
         {/* ── Header ── */}
-        <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-[#2e3345] bg-[#171a23]/95 px-5 py-4">
+        <div className="sticky top-0 z-10 flex items-center justify-between gap-4 border-b border-[#343b50] bg-[#171c27]/95 px-6 py-5">
           <div className="min-w-0">
-            <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-widest text-[#9ca3b8]">
+            <p className="mb-0.5 text-[11px] font-semibold uppercase tracking-widest text-[#aeb7c8]">
               Verification Sample
             </p>
             <h2
               id="review-sample-title"
-              className="truncate text-[15px] font-semibold text-[#e4e6ed]"
+              className="truncate text-lg font-semibold text-[#edf0f7]"
             >
               {item ? `Sample #${item.sample_key.split('#').at(-1)}` : 'Loading…'}
             </h2>
@@ -258,26 +258,26 @@ export function ReviewModal({
             onClick={onClose}
             disabled={isBusy}
             aria-label="Close"
-            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-transparent text-[#9ca3b8] transition-[background-color,border-color,color,opacity] hover:border-[#343a4f] hover:bg-[#232733] hover:text-[#e4e6ed] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:border-transparent disabled:hover:bg-transparent disabled:hover:text-[#9ca3b8] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#60a5fa]"
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-transparent text-[#aeb7c8] transition-[background-color,border-color,color,opacity] hover:border-[#343a4f] hover:bg-[#252b38] hover:text-[#edf0f7] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:border-transparent disabled:hover:bg-transparent disabled:hover:text-[#aeb7c8] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#60a5fa]"
           >
-            <X aria-hidden="true" className="h-4 w-4" />
+            <X aria-hidden="true" className="h-5 w-5" />
           </button>
         </div>
 
-        <div className="px-5 py-4">
+        <div className="px-6 py-5">
           {/* ── Prev / Next navigation ── */}
           <div className="mb-5 flex items-center gap-2">
           <button
             type="button"
             onClick={onPrev}
             disabled={currentIndex <= 0 || isBusy}
-            className="inline-flex items-center gap-1.5 rounded-md border border-[#2e3345] bg-[#232733] px-3 py-1.5 text-xs font-medium text-[#e4e6ed] transition-[background-color,border-color,color] hover:border-[#60a5fa] hover:text-[#ffffff] disabled:cursor-default disabled:opacity-35 disabled:hover:border-[#2e3345] disabled:hover:text-[#e4e6ed] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#60a5fa]"
+            className="inline-flex items-center gap-2 rounded-lg border border-[#343b50] bg-[#252b38] px-4 py-2 text-sm font-medium text-[#edf0f7] transition-[background-color,border-color,color] hover:border-[#60a5fa] hover:text-[#ffffff] disabled:cursor-default disabled:opacity-35 disabled:hover:border-[#343b50] disabled:hover:text-[#edf0f7] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#60a5fa]"
           >
             <ChevronLeft aria-hidden="true" className="h-3.5 w-3.5" />
             Prev
           </button>
           <span
-            className="flex-1 text-center text-xs tabular-nums text-[#9ca3b8]"
+            className="flex-1 text-center text-sm tabular-nums text-[#aeb7c8]"
             aria-live="polite"
           >
             {currentIndex + 1} / {totalCount}
@@ -286,7 +286,7 @@ export function ReviewModal({
             type="button"
             onClick={onNext}
             disabled={currentIndex >= totalCount - 1 || isBusy}
-            className="inline-flex items-center gap-1.5 rounded-md border border-[#2e3345] bg-[#232733] px-3 py-1.5 text-xs font-medium text-[#e4e6ed] transition-[background-color,border-color,color] hover:border-[#60a5fa] hover:text-[#ffffff] disabled:cursor-default disabled:opacity-35 disabled:hover:border-[#2e3345] disabled:hover:text-[#e4e6ed] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#60a5fa]"
+            className="inline-flex items-center gap-2 rounded-lg border border-[#343b50] bg-[#252b38] px-4 py-2 text-sm font-medium text-[#edf0f7] transition-[background-color,border-color,color] hover:border-[#60a5fa] hover:text-[#ffffff] disabled:cursor-default disabled:opacity-35 disabled:hover:border-[#343b50] disabled:hover:text-[#edf0f7] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#60a5fa]"
           >
             Next
             <ChevronRight aria-hidden="true" className="h-3.5 w-3.5" />
@@ -300,8 +300,8 @@ export function ReviewModal({
             <button
               type="button"
               onClick={onClose}
-              className="rounded-md px-3 py-1.5 text-xs transition-[background-color,border-color,color] hover:border-[#60a5fa] hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#60a5fa]"
-              style={{ border: '1px solid #2e3345', background: '#232733', color: '#e4e6ed' }}
+              className="rounded-lg px-4 py-2 text-sm transition-[background-color,border-color,color] hover:border-[#60a5fa] hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#60a5fa]"
+              style={{ border: '1px solid #343b50', background: '#252b38', color: '#edf0f7' }}
             >
               Close
             </button>
@@ -309,24 +309,24 @@ export function ReviewModal({
         ) : (
           <>
             {/* ── Detail grid ── */}
-            <div className="mb-5 grid grid-cols-[110px_minmax(0,1fr)] gap-x-4 gap-y-2.5 rounded-md border border-[#2e3345] bg-[#11141c] p-3 text-[13px]">
-              <span className="pt-0.5 font-medium" style={{ color: '#9ca3b8' }}>
+            <div className="mb-6 grid grid-cols-[132px_minmax(0,1fr)] gap-x-5 gap-y-3 rounded-lg border border-[#343b50] bg-[#111722] p-4 text-[15px]">
+              <span className="pt-0.5 font-medium" style={{ color: '#aeb7c8' }}>
                 Value
               </span>
               <span
-                className="min-w-0 break-words font-mono text-[12px]"
-                style={{ color: '#e4e6ed' }}
+                className="min-w-0 break-words font-mono text-sm"
+                style={{ color: '#edf0f7' }}
               >
                 {item.value}
               </span>
 
-              <span className="pt-0.5 font-medium" style={{ color: '#9ca3b8' }}>
+              <span className="pt-0.5 font-medium" style={{ color: '#aeb7c8' }}>
                 Verdict
               </span>
               <span>
                 {verdictStyle && (
                   <span
-                    className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider"
+                    className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider"
                     style={{
                       background: verdictStyle.bg,
                       color: verdictStyle.color,
@@ -339,20 +339,20 @@ export function ReviewModal({
                 )}
               </span>
 
-              <span className="pt-0.5 font-medium" style={{ color: '#9ca3b8' }}>
+              <span className="pt-0.5 font-medium" style={{ color: '#aeb7c8' }}>
                 Reason
               </span>
-              <span className="min-w-0 break-words" style={{ color: '#e4e6ed' }}>
+              <span className="min-w-0 break-words" style={{ color: '#edf0f7' }}>
                 {item.reason || '—'}
               </span>
 
               {item.suggested_label && (
                 <>
-                  <span className="pt-0.5 font-medium" style={{ color: '#9ca3b8' }}>
+                  <span className="pt-0.5 font-medium" style={{ color: '#aeb7c8' }}>
                     Suggested
                   </span>
                   <span
-                    className="inline-block w-fit max-w-full rounded px-2 py-0.5 text-[11px] font-medium"
+                    className="inline-block w-fit max-w-full rounded-md px-2.5 py-1 text-xs font-medium"
                     style={{ background: 'rgba(96,165,250,0.1)', color: '#60a5fa' }}
                   >
                     {item.suggested_label}
@@ -362,11 +362,11 @@ export function ReviewModal({
 
               {item.replacement_value && (
                 <>
-                  <span className="pt-0.5 font-medium" style={{ color: '#9ca3b8' }}>
+                  <span className="pt-0.5 font-medium" style={{ color: '#aeb7c8' }}>
                     Replacement
                   </span>
                   <span
-                    className="inline-block w-fit max-w-full break-words rounded px-2 py-0.5 font-mono text-[11px]"
+                    className="inline-block w-fit max-w-full break-words rounded-md px-2.5 py-1 font-mono text-xs"
                     style={{ background: 'rgba(251,191,36,0.1)', color: '#fbbf24' }}
                   >
                     {item.replacement_value}
@@ -380,7 +380,7 @@ export function ReviewModal({
               <div className="mb-5">
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <div
-                    className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider"
+                    className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider"
                     style={{ color: '#60a5fa' }}
                   >
                     <FileText aria-hidden="true" className="h-3.5 w-3.5" />
@@ -390,7 +390,7 @@ export function ReviewModal({
                     type="button"
                     disabled={!hasLock || isBusy}
                     onClick={() => setShowMaskEditor((value) => !value)}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-[#2e3345] bg-[#232733] px-2 py-1 text-[11px] font-medium text-[#e4e6ed] transition-[background-color,border-color,color,opacity] hover:border-[#60a5fa] hover:text-white disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-[#2e3345] disabled:hover:text-[#e4e6ed] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#60a5fa]"
+                    className="inline-flex items-center gap-2 rounded-lg border border-[#343b50] bg-[#252b38] px-3 py-1.5 text-sm font-medium text-[#edf0f7] transition-[background-color,border-color,color,opacity] hover:border-[#60a5fa] hover:text-white disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-[#343b50] disabled:hover:text-[#edf0f7] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#60a5fa]"
                     aria-expanded={showMaskEditor}
                   >
                     <Edit3 aria-hidden="true" className="h-3 w-3" />
@@ -400,26 +400,26 @@ export function ReviewModal({
                 <div
                   ref={sourceContextRef}
                   className={cn(
-                    'rounded-md border border-[#343a4f] p-3 text-[13px] leading-7',
-                    'max-h-[200px] overflow-y-auto whitespace-pre-wrap break-words',
+                    'rounded-lg border border-[#343a4f] p-4 text-[15px] leading-8',
+                    'max-h-[260px] overflow-y-auto whitespace-pre-wrap break-words',
                     'review-source-context',
                   )}
-                  style={{ background: '#11141c', color: '#e4e6ed' }}
+                  style={{ background: '#111722', color: '#edf0f7' }}
                   dangerouslySetInnerHTML={{ __html: ctxHtml }}
                 />
               </div>
             ) : acquiringLock ? (
               <div
-                className="mb-5 flex items-center gap-2 rounded-md border border-[#2e3345] p-3 text-[12px]"
-                style={{ background: '#232733', color: '#9ca3b8' }}
+                className="mb-5 flex items-center gap-2 rounded-lg border border-[#343b50] p-4 text-sm"
+                style={{ background: '#252b38', color: '#aeb7c8' }}
               >
                 <LoaderCircle aria-hidden="true" className="h-3.5 w-3.5 shrink-0 animate-spin" />
                 Loading context…
               </div>
             ) : (
               <div
-                className="mb-5 rounded-md border border-[#2e3345] p-3 text-[12px] italic"
-                style={{ background: '#232733', color: '#9ca3b8' }}
+                className="mb-5 rounded-lg border border-[#343b50] p-4 text-sm italic"
+                style={{ background: '#252b38', color: '#aeb7c8' }}
               >
                 Context not available
               </div>
@@ -448,24 +448,24 @@ export function ReviewModal({
                 value={reviewerNote}
                 onChange={(e) => setReviewerNote(e.target.value)}
                 placeholder="Optional reviewer note…"
-                rows={2}
-                className="w-full resize-none rounded-md px-3 py-2 text-sm transition-[border-color,background-color,color] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#60a5fa]"
+                rows={3}
+                className="w-full resize-none rounded-lg px-3.5 py-2.5 text-[15px] transition-[border-color,background-color,color] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#60a5fa]"
                 style={{
-                  background: '#232733',
-                  border: '1px solid #2e3345',
-                  color: '#e4e6ed',
+                  background: '#252b38',
+                  border: '1px solid #343b50',
+                  color: '#edf0f7',
                 }}
                 onFocus={(e) => (e.currentTarget.style.borderColor = '#60a5fa')}
-                onBlur={(e) => (e.currentTarget.style.borderColor = '#2e3345')}
+                onBlur={(e) => (e.currentTarget.style.borderColor = '#343b50')}
               />
             </div>
 
             {/* ── Action bar ── */}
             <div
               className="pt-4 flex items-center gap-3 flex-wrap"
-              style={{ borderTop: '1px solid #2e3345' }}
+              style={{ borderTop: '1px solid #343b50' }}
             >
-              <span className="text-[11px]" style={{ color: '#9ca3b8' }}>
+              <span className="text-xs" style={{ color: '#aeb7c8' }}>
                 Decision:
               </span>
 
@@ -489,7 +489,7 @@ export function ReviewModal({
                         setPendingDecision({ decision: 'accept', note: reviewerNote, itemId: item.id })
                       }
                     }}
-                    className="inline-flex items-center gap-1.5 rounded-md px-4 py-1.5 text-[13px] font-semibold transition-[background-color,border-color,color,opacity] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#60a5fa]"
+                    className="inline-flex items-center gap-2 rounded-lg px-5 py-2 text-[15px] font-semibold transition-[background-color,border-color,color,opacity] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#60a5fa]"
                     style={{
                       background: 'rgba(52,211,153,0.12)',
                       color: '#34d399',
@@ -515,7 +515,7 @@ export function ReviewModal({
                     Accept
                     {canAct && (
                       <kbd
-                        className="ml-1 rounded px-1 py-0.5 text-[10px] font-normal"
+                        className="ml-1 rounded px-1 py-0.5 text-[11px] font-normal"
                         style={{
                           border: '1px solid rgba(52,211,153,0.4)',
                           opacity: 0.7,
@@ -553,7 +553,7 @@ export function ReviewModal({
                         }
                       }
                     }}
-                    className="inline-flex items-center gap-1.5 rounded-md px-4 py-1.5 text-[13px] font-semibold transition-[background-color,border-color,color,opacity] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#60a5fa]"
+                    className="inline-flex items-center gap-2 rounded-lg px-5 py-2 text-[15px] font-semibold transition-[background-color,border-color,color,opacity] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#60a5fa]"
                     style={{
                       background: showSubDialog ? '#f87171' : 'rgba(248,113,113,0.12)',
                       color: showSubDialog ? '#fff' : '#f87171',
@@ -580,7 +580,7 @@ export function ReviewModal({
                     Deny
                     {canAct && (
                   <kbd
-                    className="ml-1 rounded px-1 py-0.5 text-[10px] font-normal"
+                    className="ml-1 rounded px-1 py-0.5 text-[11px] font-normal"
                     style={{
                       border: '1px solid rgba(248,113,113,0.4)',
                       opacity: 0.7,
@@ -596,7 +596,7 @@ export function ReviewModal({
               {/* Already-reviewed status */}
               {item.status === 'completed' && item.decision && (
                 <span
-                  className="ml-auto inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider"
+                  className="ml-auto inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wider"
                   style={{
                     color: item.decision === 'accept' ? '#34d399' : '#f87171',
                   }}
@@ -612,7 +612,7 @@ export function ReviewModal({
 
               {acquiringLock && !saving && !pendingDecisionForItem && (
                 <span
-                  className="ml-auto text-[11px] flex items-center gap-1.5"
+                  className="ml-auto text-xs flex items-center gap-1.5"
                   style={{ color: '#60a5fa' }}
                 >
                   <LoaderCircle aria-hidden="true" className="h-3 w-3 animate-spin" />
@@ -621,7 +621,7 @@ export function ReviewModal({
               )}
 
               {saving && (
-                <span className="ml-auto text-[11px]" style={{ color: '#fbbf24' }}>
+                <span className="ml-auto text-xs" style={{ color: '#fbbf24' }}>
                   Saving…
                 </span>
               )}
@@ -630,10 +630,10 @@ export function ReviewModal({
             {/* ── Sub-dialog for multi-path deny decisions ── */}
             {showSubDialog && (
               <div
-                className="mt-3 rounded-lg p-3 text-sm"
-                style={{ background: '#232733', border: '1px solid #2e3345' }}
+                className="mt-4 rounded-lg p-4 text-[15px]"
+                style={{ background: '#252b38', border: '1px solid #343b50' }}
               >
-                <p className="text-[12px] mb-3" style={{ color: '#9ca3b8' }}>
+                <p className="text-sm mb-3" style={{ color: '#aeb7c8' }}>
                   {item.verdict === 'WRONG_LABEL'
                     ? 'How should this wrong-label finding be denied?'
                     : 'What would you like to do with this sample?'}
@@ -657,11 +657,11 @@ export function ReviewModal({
                         setShowSubDialog(false)
                         if (sample) void onSubmit(item, sample, decision, reviewerNote)
                       }}
-                      className="rounded-md px-3 py-1.5 text-[12px] font-medium transition-[background-color,border-color,color] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#60a5fa]"
+                      className="rounded-lg px-3.5 py-2 text-sm font-medium transition-[background-color,border-color,color] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#60a5fa]"
                       style={{
-                        border: '1px solid #2e3345',
-                        background: '#1a1d27',
-                        color: '#e4e6ed',
+                        border: '1px solid #343b50',
+                        background: '#191e2a',
+                        color: '#edf0f7',
                       }}
                       onMouseEnter={(e) => {
                         ;(e.currentTarget as HTMLElement).style.background =
@@ -670,9 +670,9 @@ export function ReviewModal({
                         ;(e.currentTarget as HTMLElement).style.color = '#60a5fa'
                       }}
                       onMouseLeave={(e) => {
-                        ;(e.currentTarget as HTMLElement).style.background = '#1a1d27'
-                        ;(e.currentTarget as HTMLElement).style.borderColor = '#2e3345'
-                        ;(e.currentTarget as HTMLElement).style.color = '#e4e6ed'
+                        ;(e.currentTarget as HTMLElement).style.background = '#191e2a'
+                        ;(e.currentTarget as HTMLElement).style.borderColor = '#343b50'
+                        ;(e.currentTarget as HTMLElement).style.color = '#edf0f7'
                       }}
                     >
                       {label}
@@ -685,7 +685,7 @@ export function ReviewModal({
             {/* ── Lock status: only warn when we don't have the lock AND aren't in the process of getting it ── */}
             {!hasLock && !acquiringLock && sample?.locked_by && sample.locked_by !== currentUserId && (
               <p
-                className="mt-3 flex items-center gap-1.5 text-[11px]"
+                className="mt-3 flex items-center gap-1.5 text-xs"
                 style={{ color: '#f87171' }}
               >
                 <AlertTriangle aria-hidden="true" className="h-3.5 w-3.5" />
