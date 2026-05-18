@@ -94,12 +94,35 @@ export function ReviewModal({
   const [reviewerNote, setReviewerNote] = useState('')
   const [showSubDialog, setShowSubDialog] = useState(false)
   const [showMaskEditor, setShowMaskEditor] = useState(false)
+  const [pendingDecision, setPendingDecision] = useState<{
+    decision: ReviewDecision
+    note: string
+    itemId: string
+  } | null>(null)
   const sourceContextRef = useRef<HTMLDivElement>(null)
 
+  const currentItemId = item?.id
+  const pendingDecisionForItem =
+    pendingDecision && pendingDecision.itemId === currentItemId ? pendingDecision : null
   const hasLock = isOwnLock(sample, currentUserId)
-  const canAct = hasLock && !saving && !acquiringLock
+  const isBusy = saving || acquiringLock
+  const canAct = hasLock && !isBusy
 
-  // Reset local state on item change
+  // Clear stale queued intent after navigation. The derived item-id guard above
+  // prevents it from firing on the wrong item before this cleanup runs.
+  useEffect(() => {
+    if (!pendingDecision || pendingDecision.itemId === currentItemId) return undefined
+
+    const frame = window.requestAnimationFrame(() => {
+      setPendingDecision((current) =>
+        current && current.itemId !== currentItemId ? null : current,
+      )
+    })
+
+    return () => window.cancelAnimationFrame(frame)
+  }, [currentItemId, pendingDecision])
+
+  // Reset visual state on item change (deferred to avoid flash of stale content)
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
       setReviewerNote('')
@@ -108,7 +131,7 @@ export function ReviewModal({
     })
 
     return () => window.cancelAnimationFrame(frame)
-  }, [item?.id])
+  }, [currentItemId])
 
   // Keyboard shortcuts — only active when modal is open
   useEffect(() => {
@@ -120,12 +143,12 @@ export function ReviewModal({
       switch (e.key) {
         case 'Escape':
           e.preventDefault()
-          onClose()
+          if (!isBusy) onClose()
           return
 
         case 'ArrowRight':
         case 'ArrowDown':
-          if (!acquiringLock) {
+          if (!isBusy) {
             e.preventDefault()
             onNext()
           }
@@ -133,28 +156,37 @@ export function ReviewModal({
 
         case 'ArrowLeft':
         case 'ArrowUp':
-          if (!acquiringLock) {
+          if (!isBusy) {
             e.preventDefault()
             onPrev()
           }
           return
 
         case 'Enter':
-          if (canAct && item && sample) {
+          if (item && sample) {
             e.preventDefault()
             setShowSubDialog(false)
-            void onSubmit(item, sample, 'accept', reviewerNote)
+            if (canAct) {
+              void onSubmit(item, sample, 'accept', reviewerNote)
+            } else if (acquiringLock && !saving) {
+              setPendingDecision({ decision: 'accept', note: reviewerNote, itemId: item.id })
+            }
           }
           return
 
         case 'Backspace':
-          if (canAct && item && sample) {
+          if (item && sample) {
             e.preventDefault()
             if (item.verdict === 'UNREALISTIC_VALUE' || item.verdict === 'WRONG_LABEL') {
-              setShowSubDialog((v) => !v)
+              // Sub-dialog requires deliberate user interaction — don't queue it
+              if (canAct) setShowSubDialog((v) => !v)
             } else {
               setShowSubDialog(false)
-              void onSubmit(item, sample, 'deny', reviewerNote)
+              if (canAct) {
+                void onSubmit(item, sample, 'deny', reviewerNote)
+              } else if (acquiringLock && !saving) {
+                setPendingDecision({ decision: 'deny', note: reviewerNote, itemId: item.id })
+              }
             }
           }
           return
@@ -163,7 +195,23 @@ export function ReviewModal({
 
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [canAct, item, sample, reviewerNote, acquiringLock, onClose, onNext, onPrev, onSubmit])
+  }, [canAct, isBusy, item, sample, reviewerNote, saving, acquiringLock, onClose, onNext, onPrev, onSubmit])
+
+  // Auto-fire a queued decision as soon as the lock is acquired and canAct flips true.
+  // Guard on itemId so a pending decision queued for item N is never fired on item N+1
+  // in case the effect runs before the item-change clear-effect above has committed.
+  useEffect(() => {
+    if (!canAct || !pendingDecisionForItem || !item || !sample) return undefined
+
+    const { decision, note, itemId } = pendingDecisionForItem
+    const frame = window.requestAnimationFrame(() => {
+      setPendingDecision((current) => (current?.itemId === itemId ? null : current))
+      setShowSubDialog(false)
+      void onSubmit(item, sample, decision, note)
+    })
+
+    return () => window.cancelAnimationFrame(frame)
+  }, [canAct, pendingDecisionForItem, item, sample, onSubmit])
 
   const verdictStyle = item ? VERDICT_STYLE[item.verdict as keyof typeof VERDICT_STYLE] : null
   const VerdictIcon = verdictStyle?.Icon ?? null
@@ -183,7 +231,7 @@ export function ReviewModal({
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-[#05070c]/75 px-3 py-5 backdrop-blur-sm"
       onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose()
+        if (!isBusy && e.target === e.currentTarget) onClose()
       }}
     >
       <div
@@ -208,8 +256,9 @@ export function ReviewModal({
           <button
             type="button"
             onClick={onClose}
+            disabled={isBusy}
             aria-label="Close"
-            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-transparent text-[#9ca3b8] transition-[background-color,border-color,color] hover:border-[#343a4f] hover:bg-[#232733] hover:text-[#e4e6ed] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#60a5fa]"
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-transparent text-[#9ca3b8] transition-[background-color,border-color,color,opacity] hover:border-[#343a4f] hover:bg-[#232733] hover:text-[#e4e6ed] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:border-transparent disabled:hover:bg-transparent disabled:hover:text-[#9ca3b8] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#60a5fa]"
           >
             <X aria-hidden="true" className="h-4 w-4" />
           </button>
@@ -221,7 +270,7 @@ export function ReviewModal({
           <button
             type="button"
             onClick={onPrev}
-            disabled={currentIndex <= 0 || acquiringLock}
+            disabled={currentIndex <= 0 || isBusy}
             className="inline-flex items-center gap-1.5 rounded-md border border-[#2e3345] bg-[#232733] px-3 py-1.5 text-xs font-medium text-[#e4e6ed] transition-[background-color,border-color,color] hover:border-[#60a5fa] hover:text-[#ffffff] disabled:cursor-default disabled:opacity-35 disabled:hover:border-[#2e3345] disabled:hover:text-[#e4e6ed] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#60a5fa]"
           >
             <ChevronLeft aria-hidden="true" className="h-3.5 w-3.5" />
@@ -236,7 +285,7 @@ export function ReviewModal({
           <button
             type="button"
             onClick={onNext}
-            disabled={currentIndex >= totalCount - 1 || acquiringLock}
+            disabled={currentIndex >= totalCount - 1 || isBusy}
             className="inline-flex items-center gap-1.5 rounded-md border border-[#2e3345] bg-[#232733] px-3 py-1.5 text-xs font-medium text-[#e4e6ed] transition-[background-color,border-color,color] hover:border-[#60a5fa] hover:text-[#ffffff] disabled:cursor-default disabled:opacity-35 disabled:hover:border-[#2e3345] disabled:hover:text-[#e4e6ed] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#60a5fa]"
           >
             Next
@@ -339,7 +388,7 @@ export function ReviewModal({
                   </div>
                   <button
                     type="button"
-                    disabled={!hasLock || acquiringLock}
+                    disabled={!hasLock || isBusy}
                     onClick={() => setShowMaskEditor((value) => !value)}
                     className="inline-flex items-center gap-1.5 rounded-md border border-[#2e3345] bg-[#232733] px-2 py-1 text-[11px] font-medium text-[#e4e6ed] transition-[background-color,border-color,color,opacity] hover:border-[#60a5fa] hover:text-white disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-[#2e3345] disabled:hover:text-[#e4e6ed] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#60a5fa]"
                     aria-expanded={showMaskEditor}
@@ -382,7 +431,7 @@ export function ReviewModal({
                 sample={sample}
                 labelOptions={labelOptions}
                 saving={saving}
-                canEdit={hasLock && !acquiringLock}
+                canEdit={hasLock && !isBusy}
                 onClose={() => setShowMaskEditor(false)}
                 onSave={(editingSample, sourceText, privacyMask) =>
                   onSaveSampleMask(item, editingSample, sourceText, privacyMask)
@@ -421,82 +470,115 @@ export function ReviewModal({
               </span>
 
               {/* Accept */}
-              <button
-                type="button"
-                disabled={!canAct}
-                onClick={() => {
-                  if (!canAct || !sample) return
-                  setShowSubDialog(false)
-                  void onSubmit(item, sample, 'accept', reviewerNote)
-                }}
-                className="inline-flex items-center gap-1.5 rounded-md px-4 py-1.5 text-[13px] font-semibold transition-[background-color,border-color,color,opacity] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#60a5fa]"
-                style={{
-                  background: 'rgba(52,211,153,0.12)',
-                  color: '#34d399',
-                  border: '1px solid rgba(52,211,153,0.3)',
-                  opacity: canAct ? 1 : 0.35,
-                  cursor: canAct ? 'pointer' : 'not-allowed',
-                }}
-                onMouseEnter={(e) => {
-                  if (!canAct) return
-                  ;(e.currentTarget as HTMLElement).style.background = 'rgba(52,211,153,0.25)'
-                  ;(e.currentTarget as HTMLElement).style.borderColor = '#34d399'
-                }}
-                onMouseLeave={(e) => {
-                  ;(e.currentTarget as HTMLElement).style.background = 'rgba(52,211,153,0.12)'
-                  ;(e.currentTarget as HTMLElement).style.borderColor = 'rgba(52,211,153,0.3)'
-                }}
-              >
-                <Check aria-hidden="true" className="h-3.5 w-3.5" />
-                Accept
-                {canAct && (
-                  <kbd
-                    className="ml-1 rounded px-1 py-0.5 text-[10px] font-normal"
+              {(() => {
+                // Allow click while lock is being acquired so the intent can be queued;
+                // truly disable only when saving (mid-submit) or genuinely unactionable.
+                const acceptQueued =
+                  pendingDecisionForItem?.decision === 'accept'
+                const acceptClickable = canAct || (acquiringLock && !saving)
+                return (
+                  <button
+                    type="button"
+                    disabled={!acceptClickable}
+                    onClick={() => {
+                      if (!sample || saving) return
+                      setShowSubDialog(false)
+                      if (canAct) {
+                        void onSubmit(item, sample, 'accept', reviewerNote)
+                      } else if (acquiringLock) {
+                        setPendingDecision({ decision: 'accept', note: reviewerNote, itemId: item.id })
+                      }
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-md px-4 py-1.5 text-[13px] font-semibold transition-[background-color,border-color,color,opacity] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#60a5fa]"
                     style={{
-                      border: '1px solid rgba(52,211,153,0.4)',
-                      opacity: 0.7,
+                      background: 'rgba(52,211,153,0.12)',
+                      color: '#34d399',
+                      border: '1px solid rgba(52,211,153,0.3)',
+                      opacity: canAct || acceptQueued ? 1 : acceptClickable ? 0.65 : 0.35,
+                      cursor: acceptClickable ? 'pointer' : 'not-allowed',
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!canAct) return
+                      ;(e.currentTarget as HTMLElement).style.background = 'rgba(52,211,153,0.25)'
+                      ;(e.currentTarget as HTMLElement).style.borderColor = '#34d399'
+                    }}
+                    onMouseLeave={(e) => {
+                      ;(e.currentTarget as HTMLElement).style.background = 'rgba(52,211,153,0.12)'
+                      ;(e.currentTarget as HTMLElement).style.borderColor = 'rgba(52,211,153,0.3)'
                     }}
                   >
-                    Enter
-                  </kbd>
-                )}
-              </button>
+                    {acceptQueued ? (
+                      <LoaderCircle aria-hidden="true" className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Check aria-hidden="true" className="h-3.5 w-3.5" />
+                    )}
+                    Accept
+                    {canAct && (
+                      <kbd
+                        className="ml-1 rounded px-1 py-0.5 text-[10px] font-normal"
+                        style={{
+                          border: '1px solid rgba(52,211,153,0.4)',
+                          opacity: 0.7,
+                        }}
+                      >
+                        Enter
+                      </kbd>
+                    )}
+                  </button>
+                )
+              })()}
 
               {/* Deny */}
-              <button
-                type="button"
-                disabled={!canAct}
-                onClick={() => {
-                  if (!canAct || !sample) return
-                  if (item.verdict === 'UNREALISTIC_VALUE' || item.verdict === 'WRONG_LABEL') {
-                    setShowSubDialog((v) => !v)
-                  } else {
-                    setShowSubDialog(false)
-                    void onSubmit(item, sample, 'deny', reviewerNote)
-                  }
-                }}
-                className="inline-flex items-center gap-1.5 rounded-md px-4 py-1.5 text-[13px] font-semibold transition-[background-color,border-color,color,opacity] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#60a5fa]"
-                style={{
-                  background: showSubDialog ? '#f87171' : 'rgba(248,113,113,0.12)',
-                  color: showSubDialog ? '#fff' : '#f87171',
-                  border: `1px solid ${showSubDialog ? '#f87171' : 'rgba(248,113,113,0.3)'}`,
-                  opacity: canAct ? 1 : 0.35,
-                  cursor: canAct ? 'pointer' : 'not-allowed',
-                }}
-                onMouseEnter={(e) => {
-                  if (!canAct || showSubDialog) return
-                  ;(e.currentTarget as HTMLElement).style.background = 'rgba(248,113,113,0.25)'
-                  ;(e.currentTarget as HTMLElement).style.borderColor = '#f87171'
-                }}
-                onMouseLeave={(e) => {
-                  if (showSubDialog) return
-                  ;(e.currentTarget as HTMLElement).style.background = 'rgba(248,113,113,0.12)'
-                  ;(e.currentTarget as HTMLElement).style.borderColor = 'rgba(248,113,113,0.3)'
-                }}
-              >
-                <XCircle aria-hidden="true" className="h-3.5 w-3.5" />
-                Deny
-                {canAct && (
+              {(() => {
+                const denySimple =
+                  item.verdict !== 'UNREALISTIC_VALUE' && item.verdict !== 'WRONG_LABEL'
+                const denyQueued =
+                  pendingDecisionForItem?.decision === 'deny'
+                // Only allow queueing for simple (no-subdialog) deny verdicts
+                const denyClickable = canAct || (denySimple && acquiringLock && !saving)
+                return (
+                  <button
+                    type="button"
+                    disabled={!denyClickable}
+                    onClick={() => {
+                      if (!sample || saving) return
+                      if (item.verdict === 'UNREALISTIC_VALUE' || item.verdict === 'WRONG_LABEL') {
+                        if (canAct) setShowSubDialog((v) => !v)
+                      } else {
+                        setShowSubDialog(false)
+                        if (canAct) {
+                          void onSubmit(item, sample, 'deny', reviewerNote)
+                        } else if (acquiringLock) {
+                          setPendingDecision({ decision: 'deny', note: reviewerNote, itemId: item.id })
+                        }
+                      }
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-md px-4 py-1.5 text-[13px] font-semibold transition-[background-color,border-color,color,opacity] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#60a5fa]"
+                    style={{
+                      background: showSubDialog ? '#f87171' : 'rgba(248,113,113,0.12)',
+                      color: showSubDialog ? '#fff' : '#f87171',
+                      border: `1px solid ${showSubDialog ? '#f87171' : 'rgba(248,113,113,0.3)'}`,
+                      opacity: canAct || denyQueued ? 1 : denyClickable ? 0.65 : 0.35,
+                      cursor: denyClickable ? 'pointer' : 'not-allowed',
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!canAct || showSubDialog) return
+                      ;(e.currentTarget as HTMLElement).style.background = 'rgba(248,113,113,0.25)'
+                      ;(e.currentTarget as HTMLElement).style.borderColor = '#f87171'
+                    }}
+                    onMouseLeave={(e) => {
+                      if (showSubDialog) return
+                      ;(e.currentTarget as HTMLElement).style.background = 'rgba(248,113,113,0.12)'
+                      ;(e.currentTarget as HTMLElement).style.borderColor = 'rgba(248,113,113,0.3)'
+                    }}
+                  >
+                    {denyQueued ? (
+                      <LoaderCircle aria-hidden="true" className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <XCircle aria-hidden="true" className="h-3.5 w-3.5" />
+                    )}
+                    Deny
+                    {canAct && (
                   <kbd
                     className="ml-1 rounded px-1 py-0.5 text-[10px] font-normal"
                     style={{
@@ -507,7 +589,9 @@ export function ReviewModal({
                     Backspace
                   </kbd>
                 )}
-              </button>
+                  </button>
+                )
+              })()}
 
               {/* Already-reviewed status */}
               {item.status === 'completed' && item.decision && (
@@ -526,7 +610,7 @@ export function ReviewModal({
                 </span>
               )}
 
-              {acquiringLock && !saving && (
+              {acquiringLock && !saving && !pendingDecisionForItem && (
                 <span
                   className="ml-auto text-[11px] flex items-center gap-1.5"
                   style={{ color: '#60a5fa' }}

@@ -1,14 +1,15 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { AlertTriangle, Check, Search, XCircle } from 'lucide-react'
 import { AppHeader } from '@/components/AppHeader'
 import { getProjectPiiConfig } from '@/features/admin/api/pii-config.api'
+import { openSample } from '@/features/review/api/review.api'
 import { DatasetSidebar } from '@/features/review/components/DatasetSidebar'
 import { ExportButton } from '@/features/review/components/ExportButton'
 import { ReviewModal } from '@/features/review/components/ReviewModal'
 import { ReviewTable } from '@/features/review/components/ReviewTable'
 import { useReviewWorkspace } from '@/features/review/hooks/useReviewWorkspace'
-import type { PrivacyMaskEntry, ReviewDecision, ReviewItem, ReviewSample } from '@/types/domain'
+import type { PrivacyMaskEntry, ReviewBundle, ReviewDecision, ReviewItem, ReviewSample } from '@/types/domain'
 import {
   Select,
   SelectContent,
@@ -36,6 +37,26 @@ const VERDICT_PILLS: { value: VerdictFilter; label: string }[] = [
 
 const projectLabelCache = new Map<string, string[]>()
 const projectLabelRequests = new Map<string, Promise<string[]>>()
+
+function isActionableReviewItem(item: ReviewItem, submittedItemIds: Set<string>): boolean {
+  return item.status === 'pending' && item.decision == null && !submittedItemIds.has(item.id)
+}
+
+function findNextActionableItem(
+  items: ReviewItem[],
+  currentItemId: string,
+  submittedItemIds: Set<string>,
+): ReviewItem | null {
+  const currentIdx = items.findIndex((item) => item.id === currentItemId)
+  const orderedCandidates =
+    currentIdx === -1 ? items : [...items.slice(currentIdx + 1), ...items.slice(0, currentIdx)]
+
+  return (
+    orderedCandidates.find(
+      (item) => item.id !== currentItemId && isActionableReviewItem(item, submittedItemIds),
+    ) ?? null
+  )
+}
 
 async function loadCachedProjectLabels(projectId: string, forceRefresh = false): Promise<string[]> {
   if (!forceRefresh) {
@@ -95,6 +116,10 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
   const [verdictFilter, setVerdictFilter] = useState<VerdictFilter>('ALL')
   const [searchQuery, setSearchQuery] = useState('')
   const [modalItemId, setModalItemId] = useState<string | null>(null)
+  const filteredItemsRef = useRef<ReviewItem[]>([])
+  const submittedItemIdsRef = useRef<Set<string>>(new Set())
+  const decisionInFlightItemIdRef = useRef<string | null>(null)
+  const [submittingItemId, setSubmittingItemId] = useState<string | null>(null)
   const [configuredEntityTypes, setConfiguredEntityTypes] = useState<{
     projectId: string
     labels: string[]
@@ -151,6 +176,14 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
     return result
   }, [items, verdictFilter, searchQuery])
 
+  useEffect(() => {
+    filteredItemsRef.current = filteredItems
+  }, [filteredItems])
+
+  useEffect(() => {
+    submittedItemIdsRef.current = new Set()
+  }, [activeDataset?.id, activeEntityType])
+
   const verdictCounts = useMemo(
     () => ({
       total: items.length,
@@ -196,10 +229,14 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
 
   // ── Navigation helper ──────────────────────────────────────────
   const navigateToItem = useCallback(
-    async (item: ReviewItem) => {
+    async (
+      item: ReviewItem,
+      prefetchedBundle?: ReviewBundle,
+      forceAcquireLock = false,
+    ) => {
       setModalItemId(item.id)
       await Promise.all([
-        openItem(item),
+        openItem(item, prefetchedBundle, { forceAcquireLock }),
         activeProjectId ? loadProjectLabels(activeProjectId) : Promise.resolve(),
       ])
     },
@@ -214,6 +251,8 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
   )
 
   const handleCloseModal = useCallback(() => {
+    if (decisionInFlightItemIdRef.current !== null) return
+
     setModalItemId(null)
     if (activeSample) {
       void releaseLock(activeSample.id)
@@ -221,16 +260,16 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
   }, [activeSample, releaseLock])
 
   const handleModalPrev = useCallback(() => {
-    if (modalItemIndex > 0 && !acquiringLock) {
+    if (modalItemIndex > 0 && !acquiringLock && submittingItemId === null) {
       void navigateToItem(filteredItems[modalItemIndex - 1])
     }
-  }, [modalItemIndex, filteredItems, acquiringLock, navigateToItem])
+  }, [modalItemIndex, filteredItems, acquiringLock, submittingItemId, navigateToItem])
 
   const handleModalNext = useCallback(() => {
-    if (modalItemIndex < filteredItems.length - 1 && !acquiringLock) {
+    if (modalItemIndex < filteredItems.length - 1 && !acquiringLock && submittingItemId === null) {
       void navigateToItem(filteredItems[modalItemIndex + 1])
     }
-  }, [modalItemIndex, filteredItems, acquiringLock, navigateToItem])
+  }, [modalItemIndex, filteredItems, acquiringLock, submittingItemId, navigateToItem])
 
   const handleModalSubmit = useCallback(
     async (
@@ -239,22 +278,84 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
       decision: ReviewDecision,
       reviewerNote: string,
     ) => {
-      // Capture next item BEFORE submission reloads the list
-      const currentIdx = filteredItems.findIndex((i) => i.id === item.id)
-      const nextItem =
-        currentIdx >= 0 && currentIdx + 1 < filteredItems.length
-          ? filteredItems[currentIdx + 1]
-          : null
+      if (decisionInFlightItemIdRef.current !== null) {
+        return
+      }
 
-      await submitDecision(item, sample, decision, reviewerNote, projectLabelOptions)
+      decisionInFlightItemIdRef.current = item.id
+      setSubmittingItemId(item.id)
 
-      if (nextItem) {
-        await navigateToItem(nextItem)
-      } else {
-        setModalItemId(null)
+      try {
+        // Pre-compute for opportunistic prefetching before the network round-trip.
+        // This value may become stale if filteredItems is refreshed during submit,
+        // so we re-compute the authoritative next item after submit completes.
+        const precomputedNext = findNextActionableItem(
+          filteredItemsRef.current,
+          item.id,
+          submittedItemIdsRef.current,
+        )
+        const canPrefetchNext = precomputedNext !== null && precomputedNext.sample_row_id !== sample.id
+        const prefetchedBundlePromise = canPrefetchNext
+          ? openSample(precomputedNext.sample_row_id, 120).catch(() => null)
+          : Promise.resolve<ReviewBundle | null>(null)
+
+        const submitted = await submitDecision(
+          item,
+          sample,
+          decision,
+          reviewerNote,
+          projectLabelOptions,
+        )
+
+        if (!submitted) {
+          void prefetchedBundlePromise.then((bundle) => {
+            if (bundle) void releaseLock(bundle.sample.id).catch(() => {})
+          })
+          return
+        }
+
+        submittedItemIdsRef.current = new Set(submittedItemIdsRef.current).add(item.id)
+
+        // Re-compute after submit so that filteredItems state refreshed during the
+        // network call (e.g. silentRefreshItems) and the newly-submitted item are
+        // both reflected — preventing navigation to a stale/already-accepted item.
+        const nextItem = findNextActionableItem(
+          filteredItemsRef.current,
+          item.id,
+          submittedItemIdsRef.current,
+        )
+
+        if (nextItem) {
+          // Reuse the prefetch only when it targeted the same sample we're navigating
+          // to; otherwise release that lock and let openItem acquire a fresh one.
+          const prefetchMatchesSample = precomputedNext?.sample_row_id === nextItem.sample_row_id
+          let prefetchedBundle: ReviewBundle | null = null
+          if (prefetchMatchesSample) {
+            prefetchedBundle = await prefetchedBundlePromise
+          } else {
+            void prefetchedBundlePromise.then((bundle) => {
+              if (bundle) void releaseLock(bundle.sample.id).catch(() => {})
+            })
+          }
+          await navigateToItem(
+            nextItem,
+            prefetchedBundle ?? undefined,
+            nextItem.sample_row_id === sample.id,
+          )
+        } else {
+          void prefetchedBundlePromise.then((bundle) => {
+            if (bundle) void releaseLock(bundle.sample.id).catch(() => {})
+          })
+          setModalItemId(null)
+        }
+      } finally {
+        if (decisionInFlightItemIdRef.current === item.id) {
+          decisionInFlightItemIdRef.current = null
+          setSubmittingItemId(null)
+        }
       }
     },
-    [filteredItems, projectLabelOptions, submitDecision, navigateToItem],
+    [projectLabelOptions, releaseLock, submitDecision, navigateToItem],
   )
 
   const handleModalSaveSampleMask = useCallback(
@@ -476,7 +577,7 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
           sample={activeSample}
           currentIndex={modalItemIndex}
           totalCount={filteredItems.length}
-          saving={saving}
+          saving={saving || submittingItemId !== null}
           acquiringLock={acquiringLock}
           currentUserId={session.user.id}
           labelOptions={labelOptions}

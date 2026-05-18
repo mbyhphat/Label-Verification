@@ -23,11 +23,15 @@ export type ReviewAuditExport = {
   audit_events: AuditEvent[]
 }
 
-function isJsonRecord(value: Json): value is JsonRecord {
+function isJsonRecord(value: unknown): value is JsonRecord {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
 const SAMPLE_EXPORT_PAGE_SIZE = 1000
+
+function isJsonRecordWithId(value: unknown): value is JsonRecord & { id: string } {
+  return isJsonRecord(value) && typeof value.id === 'string'
+}
 
 export async function listReviewItems(datasetId: string): Promise<ReviewItem[]> {
   const { data, error } = await supabase.rpc('list_review_items', {
@@ -106,7 +110,14 @@ export type SubmitDecisionArgs = {
   privacyMask: PrivacyMaskEntry[]
 }
 
-export async function submitReviewDecision(args: SubmitDecisionArgs): Promise<Json> {
+export type SubmitDecisionResult = {
+  sample: ReviewSample
+  item: ReviewItem
+}
+
+export async function submitReviewDecision(
+  args: SubmitDecisionArgs,
+): Promise<SubmitDecisionResult> {
   const { data, error } = await supabase.rpc('submit_review_decision', {
     p_review_item_id: args.item.id,
     p_sample_version: args.sample.version,
@@ -118,7 +129,18 @@ export async function submitReviewDecision(args: SubmitDecisionArgs): Promise<Js
   })
 
   if (error) throw error
-  return data
+  if (
+    !isJsonRecord(data) ||
+    !isJsonRecordWithId(data.sample) ||
+    !isJsonRecordWithId(data.item)
+  ) {
+    throw new Error('Invalid submit_review_decision response.')
+  }
+
+  return {
+    sample: data.sample as unknown as ReviewSample,
+    item: data.item as unknown as ReviewItem,
+  }
 }
 
 export async function updateReviewSampleMask(args: {

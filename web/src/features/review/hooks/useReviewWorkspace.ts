@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { formatSupabaseError } from '@/lib/supabase/errors'
 import type {
   Dataset,
   PrivacyMaskEntry,
+  ReviewBundle,
   ReviewDecision,
   ReviewItem,
   ReviewSample,
@@ -44,6 +45,10 @@ type ReviewStats = {
   total: number
 }
 
+type OpenItemOptions = {
+  forceAcquireLock?: boolean
+}
+
 export type ReviewWorkspaceState = {
   datasets: Dataset[]
   activeDataset: Dataset | null
@@ -61,14 +66,18 @@ export type ReviewWorkspaceState = {
   stats: ReviewStats
   selectDataset: (dataset: Dataset) => Promise<void>
   selectEntityType: (entityType: string | null) => void
-  openItem: (item: ReviewItem) => Promise<void>
+  openItem: (
+    item: ReviewItem,
+    prefetchedBundle?: ReviewBundle,
+    options?: OpenItemOptions,
+  ) => Promise<void>
   submitDecision: (
     item: ReviewItem,
     sample: ReviewSample,
     decision: ReviewDecision,
     reviewerNote: string,
     projectLabels?: string[],
-  ) => Promise<void>
+  ) => Promise<boolean>
   saveSampleMask: (
     item: ReviewItem,
     sample: ReviewSample,
@@ -84,6 +93,15 @@ function computeStats(items: ReviewItem[]): ReviewStats {
   return { completed, pending, total: items.length }
 }
 
+function upsertReviewItem(items: ReviewItem[], item: ReviewItem): ReviewItem[] {
+  const idx = items.findIndex((current) => current.id === item.id)
+  if (idx === -1) return [item, ...items]
+
+  const next = [...items]
+  next[idx] = item
+  return next
+}
+
 export function useReviewWorkspace(session: Session): ReviewWorkspaceState {
   const [datasets, setDatasets] = useState<Dataset[]>([])
   const [activeDataset, setActiveDataset] = useState<Dataset | null>(null)
@@ -97,6 +115,7 @@ export function useReviewWorkspace(session: Session): ReviewWorkspaceState {
   const [acquiringLock, setAcquiringLock] = useState(false)
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState('')
+  const activeDatasetIdRef = useRef<string | null>(null)
 
   const entityTypes = useMemo(
     () => Array.from(new Set(allItems.map((item) => item.entity_type))).sort(),
@@ -110,6 +129,10 @@ export function useReviewWorkspace(session: Session): ReviewWorkspaceState {
 
   const stats = useMemo(() => computeStats(items), [items])
 
+  useEffect(() => {
+    activeDatasetIdRef.current = activeDataset?.id ?? null
+  }, [activeDataset?.id])
+
   // ── Realtime handlers ──────────────────────────────────────────────
 
   const handleSampleChange = useCallback((sample: ReviewSample) => {
@@ -118,13 +141,7 @@ export function useReviewWorkspace(session: Session): ReviewWorkspaceState {
   }, [])
 
   const handleItemChange = useCallback((item: ReviewItem) => {
-    setAllItems((prev) => {
-      const idx = prev.findIndex((c) => c.id === item.id)
-      if (idx === -1) return [item, ...prev]
-      const next = [...prev]
-      next[idx] = item
-      return next
-    })
+    setAllItems((prev) => upsertReviewItem(prev, item))
     setActiveItem((prev) => (prev?.id === item.id ? item : prev))
   }, [])
 
@@ -150,6 +167,17 @@ export function useReviewWorkspace(session: Session): ReviewWorkspaceState {
       setNotice(formatSupabaseError(err))
     } finally {
       setLoadingItems(false)
+    }
+  }, [])
+
+  const silentRefreshItems = useCallback(async (datasetId: string) => {
+    try {
+      const nextItems = await listReviewItems(datasetId)
+      if (activeDatasetIdRef.current === datasetId) {
+        setAllItems(nextItems)
+      }
+    } catch {
+      // Non-fatal: rows were already patched from submit_review_decision response.
     }
   }, [])
 
@@ -182,6 +210,7 @@ export function useReviewWorkspace(session: Session): ReviewWorkspaceState {
         setDatasets(list)
 
         if (list.length === 0) {
+          activeDatasetIdRef.current = null
           setActiveDataset(null)
           setAllItems([])
           setLoadingItems(false)
@@ -189,6 +218,7 @@ export function useReviewWorkspace(session: Session): ReviewWorkspaceState {
         }
 
         const target = list.find((d) => d.id === lastId) ?? list[0]
+        activeDatasetIdRef.current = target.id
         setActiveDataset(target)
         saveLastDatasetId(target.id)
 
@@ -241,6 +271,7 @@ export function useReviewWorkspace(session: Session): ReviewWorkspaceState {
         await releaseActive()
       }
       saveLastDatasetId(dataset.id)
+      activeDatasetIdRef.current = dataset.id
       setActiveDataset(dataset)
       await loadItems(dataset)
     },
@@ -260,14 +291,23 @@ export function useReviewWorkspace(session: Session): ReviewWorkspaceState {
   )
 
   const openItem = useCallback(
-    async (item: ReviewItem) => {
+    async (
+      item: ReviewItem,
+      prefetchedBundle?: ReviewBundle,
+      options: OpenItemOptions = {},
+    ) => {
       setNotice('')
 
       const isSameSample = activeSample?.id === item.sample_row_id
+      const hasMatchingPrefetch = prefetchedBundle?.sample.id === item.sample_row_id
+
+      if (prefetchedBundle && !hasMatchingPrefetch) {
+        void releaseSampleLock(prefetchedBundle.sample.id).catch(() => {})
+      }
 
       // Fast path: lock on this sample is still valid → just switch the active item,
       // no network calls needed.
-      if (isSameSample && isLockValid(activeSample, session.user.id)) {
+      if (!options.forceAcquireLock && isSameSample && isLockValid(activeSample, session.user.id)) {
         setActiveItem(allItems.find((c) => c.id === item.id) ?? item)
         return
       }
@@ -281,7 +321,12 @@ export function useReviewWorkspace(session: Session): ReviewWorkspaceState {
       const cachedSample = samplesById.get(item.sample_row_id)
       setActiveSample(isSameSample ? (activeSample ?? null) : (cachedSample ?? null))
 
-      setAcquiringLock(true)
+      // Only signal "acquiring" when a real network round-trip is needed.
+      // When a matching bundle was prefetched the lock is already held, so the
+      // entire path is synchronous — no UI gate required.
+      if (!hasMatchingPrefetch) {
+        setAcquiringLock(true)
+      }
       try {
         // Fire release concurrently — it targets the OLD sample, so it does not
         // block opening the new one. Non-fatal if the lock has already expired.
@@ -289,14 +334,19 @@ export function useReviewWorkspace(session: Session): ReviewWorkspaceState {
           void releaseSampleLock(activeSample.id).catch(() => {})
         }
 
-        // Single round-trip: acquires lock + fetches items atomically.
-        // No p_expected_version required — the RPC handles conflict detection.
-        const bundle = await openSample(item.sample_row_id, 120)
+        // Single round-trip: acquires lock + fetches items atomically, unless a
+        // matching bundle was prefetched in parallel with submit_review_decision.
+        const bundle = hasMatchingPrefetch
+          ? prefetchedBundle
+          : await openSample(item.sample_row_id, 120)
         setSamplesById((prev) => new Map(prev).set(bundle.sample.id, bundle.sample))
         setActiveSample(bundle.sample)
       } catch (err) {
         setNotice(formatSupabaseError(err))
       } finally {
+        // Always ensure acquiringLock is cleared. If we skipped setAcquiringLock(true)
+        // above (prefetch path), calling setAcquiringLock(false) on an already-false
+        // state is a no-op in React (no re-render triggered).
         setAcquiringLock(false)
       }
     },
@@ -315,7 +365,7 @@ export function useReviewWorkspace(session: Session): ReviewWorkspaceState {
       setNotice('')
       try {
         const preview = buildDecisionPreview(sample, item, decision, { projectLabels })
-        await submitReviewDecision({
+        const result = await submitReviewDecision({
           item,
           sample,
           decision,
@@ -323,24 +373,21 @@ export function useReviewWorkspace(session: Session): ReviewWorkspaceState {
           sourceText: preview.sourceText,
           privacyMask: preview.privacyMask,
         })
-        // Eagerly clear the lock from the in-memory sample so that the next
-        // openItem call on the same sample never takes the fast path (which
-        // would bypass openSample and leave a stale current_privacy_mask in
-        // state, causing subsequent decisions to overwrite with old mask data).
-        setActiveSample((prev) =>
-          prev?.id === sample.id
-            ? { ...prev, locked_by: null, locked_until: null }
-            : prev,
-        )
-        if (activeDataset) await loadItems(activeDataset, false)
+        setAllItems((prev) => upsertReviewItem(prev, result.item))
+        setActiveItem((prev) => (prev?.id === result.item.id ? result.item : prev))
+        setSamplesById((prev) => new Map(prev).set(result.sample.id, result.sample))
+        setActiveSample((prev) => (prev?.id === result.sample.id ? result.sample : prev))
+        if (activeDatasetIdRef.current) void silentRefreshItems(activeDatasetIdRef.current)
         setNotice('Saved. Lock released automatically.')
+        return true
       } catch (err) {
         setNotice(formatSupabaseError(err))
+        return false
       } finally {
         setSaving(false)
       }
     },
-    [activeDataset, loadItems],
+    [silentRefreshItems],
   )
 
   const saveSampleMask = useCallback(
