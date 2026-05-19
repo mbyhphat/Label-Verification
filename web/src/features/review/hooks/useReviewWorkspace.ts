@@ -3,6 +3,7 @@ import type { Session } from '@supabase/supabase-js'
 import { formatSupabaseError } from '@/lib/supabase/errors'
 import type {
   Dataset,
+  Json,
   PrivacyMaskEntry,
   ReviewBundle,
   ReviewDecision,
@@ -11,17 +12,20 @@ import type {
 } from '@/types/domain'
 import {
   acquireSampleLock,
+  countReviewItemsFiltered,
+  fetchReviewItemsPage,
   openSample,
-  listReviewItems,
   releaseSampleLock,
   submitReviewDecision,
   updateReviewSampleMask,
 } from '../api/review.api'
+import type { DatasetReviewItemCounts } from '../api/review.api'
 import { listDatasets } from '../api/dataset.api'
 import { buildDecisionPreview } from '../utils/review.service'
 import { useReviewRealtime } from './useReviewRealtime'
 
 const LAST_DATASET_KEY = 'pii-last-dataset-id'
+const REVIEW_ITEMS_PAGE_SIZE = 250
 
 function getLastDatasetId(): string | null {
   return localStorage.getItem(LAST_DATASET_KEY)
@@ -43,10 +47,34 @@ type ReviewStats = {
   pending: number
   completed: number
   total: number
+  correct: number
+  wrong_label: number
+  unrealistic_value: number
+}
+
+export type ReviewPageInfo = {
+  pageIndex: number
+  pageSize: number
+  currentCursor: Json | null
+  nextCursor: Json | null
+  hasMore: boolean
+  previousCursors: Array<Json | null>
+  filteredTotal: number
+}
+
+export type ReviewWorkspaceFilters = {
+  verdict?: ReviewItem['verdict'] | null
+  search?: string | null
 }
 
 type OpenItemOptions = {
   forceAcquireLock?: boolean
+}
+
+type LoadItemsOptions = {
+  cursor?: Json | null
+  pageIndex?: number
+  previousCursors?: Array<Json | null>
 }
 
 export type ReviewWorkspaceState = {
@@ -64,8 +92,11 @@ export type ReviewWorkspaceState = {
   saving: boolean
   notice: string
   stats: ReviewStats
+  pageInfo: ReviewPageInfo
   selectDataset: (dataset: Dataset) => Promise<void>
   selectEntityType: (entityType: string | null) => void
+  loadNextPage: () => Promise<ReviewItem[]>
+  loadPreviousPage: () => Promise<ReviewItem[]>
   openItem: (
     item: ReviewItem,
     prefetchedBundle?: ReviewBundle,
@@ -87,26 +118,51 @@ export type ReviewWorkspaceState = {
   releaseLock: (sampleId: string) => Promise<void>
 }
 
-function computeStats(items: ReviewItem[]): ReviewStats {
-  const completed = items.filter((item) => item.status === 'completed').length
-  const pending = items.filter((item) => item.status === 'pending').length
-  return { completed, pending, total: items.length }
+function createEmptyCounts(): DatasetReviewItemCounts {
+  return {
+    filtered_total: 0,
+    total: 0,
+    pending: 0,
+    completed: 0,
+    skipped: 0,
+    correct: 0,
+    wrong_label: 0,
+    unrealistic_value: 0,
+    entity_types: [],
+  }
 }
 
-function upsertReviewItem(items: ReviewItem[], item: ReviewItem): ReviewItem[] {
+function createInitialPageInfo(): ReviewPageInfo {
+  return {
+    pageIndex: 1,
+    pageSize: REVIEW_ITEMS_PAGE_SIZE,
+    currentCursor: null,
+    nextCursor: null,
+    hasMore: false,
+    previousCursors: [],
+    filteredTotal: 0,
+  }
+}
+
+function patchReviewItem(items: ReviewItem[], item: ReviewItem): ReviewItem[] {
   const idx = items.findIndex((current) => current.id === item.id)
-  if (idx === -1) return [item, ...items]
+  if (idx === -1) return items
 
   const next = [...items]
   next[idx] = item
   return next
 }
 
-export function useReviewWorkspace(session: Session): ReviewWorkspaceState {
+export function useReviewWorkspace(
+  session: Session,
+  filters: ReviewWorkspaceFilters = {},
+): ReviewWorkspaceState {
   const [datasets, setDatasets] = useState<Dataset[]>([])
   const [activeDataset, setActiveDataset] = useState<Dataset | null>(null)
   const [allItems, setAllItems] = useState<ReviewItem[]>([])
   const [activeEntityType, setActiveEntityType] = useState<string | null>(null)
+  const [reviewCounts, setReviewCounts] = useState<DatasetReviewItemCounts>(() => createEmptyCounts())
+  const [pageInfo, setPageInfo] = useState<ReviewPageInfo>(() => createInitialPageInfo())
   const [samplesById, setSamplesById] = useState<Map<string, ReviewSample>>(() => new Map())
   const [activeItem, setActiveItem] = useState<ReviewItem | null>(null)
   const [activeSample, setActiveSample] = useState<ReviewSample | null>(null)
@@ -116,22 +172,62 @@ export function useReviewWorkspace(session: Session): ReviewWorkspaceState {
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState('')
   const activeDatasetIdRef = useRef<string | null>(null)
+  const currentPageItemIdsRef = useRef<Set<string>>(new Set())
+  const loadRequestIdRef = useRef(0)
 
-  const entityTypes = useMemo(
-    () => Array.from(new Set(allItems.map((item) => item.entity_type))).sort(),
-    [allItems],
+  const verdictFilter = filters.verdict ?? null
+  const searchFilter = filters.search?.trim() || null
+
+  const entityTypes = reviewCounts.entity_types
+  const items = allItems
+
+  const stats = useMemo(
+    () => ({
+      pending: reviewCounts.pending,
+      completed: reviewCounts.completed,
+      total: reviewCounts.filtered_total,
+      correct: reviewCounts.correct,
+      wrong_label: reviewCounts.wrong_label,
+      unrealistic_value: reviewCounts.unrealistic_value,
+    }),
+    [
+      reviewCounts.completed,
+      reviewCounts.correct,
+      reviewCounts.filtered_total,
+      reviewCounts.pending,
+      reviewCounts.unrealistic_value,
+      reviewCounts.wrong_label,
+    ],
   )
-
-  const items = useMemo(() => {
-    if (!activeEntityType) return allItems
-    return allItems.filter((item) => item.entity_type === activeEntityType)
-  }, [activeEntityType, allItems])
-
-  const stats = useMemo(() => computeStats(items), [items])
 
   useEffect(() => {
     activeDatasetIdRef.current = activeDataset?.id ?? null
   }, [activeDataset?.id])
+
+  useEffect(() => {
+    currentPageItemIdsRef.current = new Set(allItems.map((item) => item.id))
+  }, [allItems])
+
+  const refreshCounts = useCallback(async () => {
+    const datasetId = activeDatasetIdRef.current
+    if (!datasetId) return
+
+    try {
+      const nextCounts = await countReviewItemsFiltered({
+        datasetId,
+        limit: REVIEW_ITEMS_PAGE_SIZE,
+        entityType: activeEntityType,
+        verdict: verdictFilter,
+        search: searchFilter,
+      })
+
+      if (activeDatasetIdRef.current !== datasetId) return
+      setReviewCounts(nextCounts)
+      setPageInfo((prev) => ({ ...prev, filteredTotal: nextCounts.filtered_total }))
+    } catch {
+      // Realtime count refresh is best effort; row-level RPCs still enforce correctness.
+    }
+  }, [activeEntityType, searchFilter, verdictFilter])
 
   // ── Realtime handlers ──────────────────────────────────────────────
 
@@ -140,10 +236,16 @@ export function useReviewWorkspace(session: Session): ReviewWorkspaceState {
     setActiveSample((prev) => (prev?.id === sample.id ? sample : prev))
   }, [])
 
-  const handleItemChange = useCallback((item: ReviewItem) => {
-    setAllItems((prev) => upsertReviewItem(prev, item))
-    setActiveItem((prev) => (prev?.id === item.id ? item : prev))
-  }, [])
+  const handleItemChange = useCallback(
+    (item: ReviewItem) => {
+      if (currentPageItemIdsRef.current.has(item.id)) {
+        setAllItems((prev) => patchReviewItem(prev, item))
+        setActiveItem((prev) => (prev?.id === item.id ? item : prev))
+      }
+      void refreshCounts()
+    },
+    [refreshCounts],
+  )
 
   useReviewRealtime({
     datasetId: activeDataset?.id ?? null,
@@ -153,33 +255,69 @@ export function useReviewWorkspace(session: Session): ReviewWorkspaceState {
 
   // ── Internal helpers ───────────────────────────────────────────────
 
-  const loadItems = useCallback(async (dataset: Dataset, resetEntityType = true) => {
-    setLoadingItems(true)
-    setNotice('')
-    try {
-      const nextItems = await listReviewItems(dataset.id)
-      setAllItems(nextItems)
-      if (resetEntityType) setActiveEntityType(null)
-      setSamplesById(new Map())
-      setActiveItem(null)
-      setActiveSample(null)
-    } catch (err) {
-      setNotice(formatSupabaseError(err))
-    } finally {
-      setLoadingItems(false)
-    }
-  }, [])
+  const loadItems = useCallback(
+    async (dataset: Dataset, options: LoadItemsOptions = {}) => {
+      const requestId = loadRequestIdRef.current + 1
+      loadRequestIdRef.current = requestId
+      const cursor = options.cursor ?? null
+      const pageIndex = options.pageIndex ?? 1
+      const previousCursors = options.previousCursors ?? []
 
-  const silentRefreshItems = useCallback(async (datasetId: string) => {
-    try {
-      const nextItems = await listReviewItems(datasetId)
-      if (activeDatasetIdRef.current === datasetId) {
-        setAllItems(nextItems)
+      setLoadingItems(true)
+      setNotice('Loading review items...')
+
+      try {
+        const [nextCounts, nextPage] = await Promise.all([
+          countReviewItemsFiltered({
+            datasetId: dataset.id,
+            limit: REVIEW_ITEMS_PAGE_SIZE,
+            entityType: activeEntityType,
+            verdict: verdictFilter,
+            search: searchFilter,
+          }),
+          fetchReviewItemsPage({
+            datasetId: dataset.id,
+            limit: REVIEW_ITEMS_PAGE_SIZE,
+            after: cursor,
+            entityType: activeEntityType,
+            verdict: verdictFilter,
+            search: searchFilter,
+          }),
+        ])
+
+        if (loadRequestIdRef.current !== requestId || activeDatasetIdRef.current !== dataset.id) {
+          return []
+        }
+
+        setReviewCounts(nextCounts)
+        setAllItems(nextPage.items)
+        setPageInfo({
+          pageIndex,
+          pageSize: REVIEW_ITEMS_PAGE_SIZE,
+          currentCursor: cursor,
+          nextCursor: nextPage.next_after,
+          hasMore: nextPage.has_more,
+          previousCursors,
+          filteredTotal: nextCounts.filtered_total,
+        })
+        setSamplesById(new Map())
+        setActiveItem(null)
+        setActiveSample(null)
+        setNotice('')
+        return nextPage.items
+      } catch (err) {
+        if (loadRequestIdRef.current === requestId) {
+          setNotice(formatSupabaseError(err))
+        }
+        return []
+      } finally {
+        if (loadRequestIdRef.current === requestId) {
+          setLoadingItems(false)
+        }
       }
-    } catch {
-      // Non-fatal: rows were already patched from submit_review_decision response.
-    }
-  }, [])
+    },
+    [activeEntityType, searchFilter, verdictFilter],
+  )
 
   const releaseActive = useCallback(async () => {
     if (!activeSample) return
@@ -193,19 +331,18 @@ export function useReviewWorkspace(session: Session): ReviewWorkspaceState {
     }
   }, [activeSample])
 
-  // ── Bootstrap: load datasets + (optionally) items in parallel ───────
+  // ── Bootstrap datasets; page loading is handled by the dataset/filter effect.
 
   useEffect(() => {
+    let cancelled = false
+
     async function init() {
       const lastId = getLastDatasetId()
       setLoadingDatasets(true)
-      if (lastId) setLoadingItems(true)
 
       try {
-        const [list, prefetchedItems] = await Promise.all([
-          listDatasets(),
-          lastId ? listReviewItems(lastId).catch(() => null) : Promise.resolve(null),
-        ])
+        const list = await listDatasets()
+        if (cancelled) return
 
         setDatasets(list)
 
@@ -213,7 +350,8 @@ export function useReviewWorkspace(session: Session): ReviewWorkspaceState {
           activeDatasetIdRef.current = null
           setActiveDataset(null)
           setAllItems([])
-          setLoadingItems(false)
+          setReviewCounts(createEmptyCounts())
+          setPageInfo(createInitialPageInfo())
           return
         }
 
@@ -221,26 +359,29 @@ export function useReviewWorkspace(session: Session): ReviewWorkspaceState {
         activeDatasetIdRef.current = target.id
         setActiveDataset(target)
         saveLastDatasetId(target.id)
-
-        if (prefetchedItems !== null && target.id === lastId) {
-          setAllItems(prefetchedItems)
-          setActiveEntityType(null)
-          setSamplesById(new Map())
-          setActiveItem(null)
-          setActiveSample(null)
-          setLoadingItems(false)
-        } else {
-          await loadItems(target)
-        }
       } catch (err) {
-        setNotice(formatSupabaseError(err))
-        setLoadingItems(false)
+        if (!cancelled) setNotice(formatSupabaseError(err))
       } finally {
-        setLoadingDatasets(false)
+        if (!cancelled) setLoadingDatasets(false)
       }
     }
+
     void init()
-  }, [loadItems])
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!activeDataset) return undefined
+
+    const timer = window.setTimeout(() => {
+      void loadItems(activeDataset)
+    }, 0)
+
+    return () => window.clearTimeout(timer)
+  }, [activeDataset, loadItems])
 
   // ── Lock refresh: renew every 30 s while held ──────────────────────
 
@@ -273,9 +414,14 @@ export function useReviewWorkspace(session: Session): ReviewWorkspaceState {
       saveLastDatasetId(dataset.id)
       activeDatasetIdRef.current = dataset.id
       setActiveDataset(dataset)
-      await loadItems(dataset)
+      setActiveEntityType(null)
+      setAllItems([])
+      setSamplesById(new Map())
+      setActiveItem(null)
+      setActiveSample(null)
+      setPageInfo(createInitialPageInfo())
     },
-    [activeSample?.locked_by, session.user.id, releaseActive, loadItems],
+    [activeSample?.locked_by, session.user.id, releaseActive],
   )
 
   const selectEntityType = useCallback(
@@ -286,9 +432,33 @@ export function useReviewWorkspace(session: Session): ReviewWorkspaceState {
       setActiveEntityType(entityType)
       setActiveItem(null)
       setActiveSample(null)
+      setPageInfo(createInitialPageInfo())
     },
     [activeSample?.locked_by, session.user.id, releaseActive],
   )
+
+  const loadNextPage = useCallback(async () => {
+    if (!activeDataset || !pageInfo.hasMore || !pageInfo.nextCursor) return []
+
+    return loadItems(activeDataset, {
+      cursor: pageInfo.nextCursor,
+      pageIndex: pageInfo.pageIndex + 1,
+      previousCursors: [...pageInfo.previousCursors, pageInfo.currentCursor],
+    })
+  }, [activeDataset, loadItems, pageInfo])
+
+  const loadPreviousPage = useCallback(async () => {
+    if (!activeDataset || pageInfo.pageIndex <= 1) return []
+
+    const nextPreviousCursors = pageInfo.previousCursors.slice(0, -1)
+    const previousCursor = pageInfo.previousCursors[pageInfo.previousCursors.length - 1] ?? null
+
+    return loadItems(activeDataset, {
+      cursor: previousCursor,
+      pageIndex: Math.max(pageInfo.pageIndex - 1, 1),
+      previousCursors: nextPreviousCursors,
+    })
+  }, [activeDataset, loadItems, pageInfo])
 
   const openItem = useCallback(
     async (
@@ -305,37 +475,25 @@ export function useReviewWorkspace(session: Session): ReviewWorkspaceState {
         void releaseSampleLock(prefetchedBundle.sample.id).catch(() => {})
       }
 
-      // Fast path: lock on this sample is still valid → just switch the active item,
-      // no network calls needed.
+      // Fast path: lock on this sample is still valid -> just switch the active item.
       if (!options.forceAcquireLock && isSameSample && isLockValid(activeSample, session.user.id)) {
         setActiveItem(allItems.find((c) => c.id === item.id) ?? item)
         return
       }
 
-      // Optimistic: surface item metadata immediately so the modal shows content
-      // while the lock is being acquired in the background.
       setActiveItem(allItems.find((c) => c.id === item.id) ?? item)
 
-      // Show cached sample immediately (enables source-context rendering without waiting).
-      // If we're switching samples, clear first so the modal doesn't briefly show the wrong context.
       const cachedSample = samplesById.get(item.sample_row_id)
       setActiveSample(isSameSample ? (activeSample ?? null) : (cachedSample ?? null))
 
-      // Only signal "acquiring" when a real network round-trip is needed.
-      // When a matching bundle was prefetched the lock is already held, so the
-      // entire path is synchronous — no UI gate required.
       if (!hasMatchingPrefetch) {
         setAcquiringLock(true)
       }
       try {
-        // Fire release concurrently — it targets the OLD sample, so it does not
-        // block opening the new one. Non-fatal if the lock has already expired.
         if (activeSample?.id && !isSameSample) {
           void releaseSampleLock(activeSample.id).catch(() => {})
         }
 
-        // Single round-trip: acquires lock + fetches items atomically, unless a
-        // matching bundle was prefetched in parallel with submit_review_decision.
         const bundle = hasMatchingPrefetch
           ? prefetchedBundle
           : await openSample(item.sample_row_id, 120)
@@ -344,9 +502,6 @@ export function useReviewWorkspace(session: Session): ReviewWorkspaceState {
       } catch (err) {
         setNotice(formatSupabaseError(err))
       } finally {
-        // Always ensure acquiringLock is cleared. If we skipped setAcquiringLock(true)
-        // above (prefetch path), calling setAcquiringLock(false) on an already-false
-        // state is a no-op in React (no re-render triggered).
         setAcquiringLock(false)
       }
     },
@@ -373,11 +528,11 @@ export function useReviewWorkspace(session: Session): ReviewWorkspaceState {
           sourceText: preview.sourceText,
           privacyMask: preview.privacyMask,
         })
-        setAllItems((prev) => upsertReviewItem(prev, result.item))
+        setAllItems((prev) => patchReviewItem(prev, result.item))
         setActiveItem((prev) => (prev?.id === result.item.id ? result.item : prev))
         setSamplesById((prev) => new Map(prev).set(result.sample.id, result.sample))
         setActiveSample((prev) => (prev?.id === result.sample.id ? result.sample : prev))
-        if (activeDatasetIdRef.current) void silentRefreshItems(activeDatasetIdRef.current)
+        void refreshCounts()
         setNotice('Saved. Lock released automatically.')
         return true
       } catch (err) {
@@ -387,7 +542,7 @@ export function useReviewWorkspace(session: Session): ReviewWorkspaceState {
         setSaving(false)
       }
     },
-    [silentRefreshItems],
+    [refreshCounts],
   )
 
   const saveSampleMask = useCallback(
@@ -421,6 +576,7 @@ export function useReviewWorkspace(session: Session): ReviewWorkspaceState {
           prev.map((current) => (current.id === item.id ? markSubmitted(current) : current)),
         )
         setActiveItem((prev) => (prev?.id === item.id ? markSubmitted(prev) : prev))
+        void refreshCounts()
         setNotice('Sample text and labels updated.')
       } catch (err) {
         setNotice(formatSupabaseError(err))
@@ -429,7 +585,7 @@ export function useReviewWorkspace(session: Session): ReviewWorkspaceState {
         setSaving(false)
       }
     },
-    [session.user.id],
+    [refreshCounts, session.user.id],
   )
 
   return {
@@ -447,8 +603,11 @@ export function useReviewWorkspace(session: Session): ReviewWorkspaceState {
     saving,
     notice,
     stats,
+    pageInfo,
     selectDataset,
     selectEntityType,
+    loadNextPage,
+    loadPreviousPage,
     openItem,
     submitDecision,
     saveSampleMask,

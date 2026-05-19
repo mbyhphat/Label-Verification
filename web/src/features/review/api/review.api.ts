@@ -29,17 +29,125 @@ function isJsonRecord(value: unknown): value is JsonRecord {
 
 const SAMPLE_EXPORT_PAGE_SIZE = 1000
 
+
 function isJsonRecordWithId(value: unknown): value is JsonRecord & { id: string } {
   return isJsonRecord(value) && typeof value.id === 'string'
 }
 
-export async function listReviewItems(datasetId: string): Promise<ReviewItem[]> {
-  const { data, error } = await supabase.rpc('list_review_items', {
-    p_dataset_id: datasetId,
-  })
+export type DatasetReviewItemCounts = {
+  filtered_total: number
+  total: number
+  pending: number
+  completed: number
+  skipped: number
+  correct: number
+  wrong_label: number
+  unrealistic_value: number
+  entity_types: string[]
+}
 
+function parseDatasetReviewCounts(data: unknown): DatasetReviewItemCounts {
+  if (!isJsonRecord(data)) {
+    throw new Error('Invalid count_review_items_filtered response.')
+  }
+  const et = data.entity_types
+  const entityTypes = Array.isArray(et)
+    ? et.filter((x): x is string => typeof x === 'string')
+    : []
+  return {
+    filtered_total:
+      typeof data.filtered_total === 'number'
+        ? data.filtered_total
+        : Number(data.filtered_total) || 0,
+    total: typeof data.total === 'number' ? data.total : Number(data.total) || 0,
+    pending: typeof data.pending === 'number' ? data.pending : Number(data.pending) || 0,
+    completed: typeof data.completed === 'number' ? data.completed : Number(data.completed) || 0,
+    skipped: typeof data.skipped === 'number' ? data.skipped : Number(data.skipped) || 0,
+    correct: typeof data.correct === 'number' ? data.correct : Number(data.correct) || 0,
+    wrong_label:
+      typeof data.wrong_label === 'number' ? data.wrong_label : Number(data.wrong_label) || 0,
+    unrealistic_value:
+      typeof data.unrealistic_value === 'number'
+        ? data.unrealistic_value
+        : Number(data.unrealistic_value) || 0,
+    entity_types: entityTypes,
+  }
+}
+
+function parseListReviewItemsPagePayload(data: unknown): {
+  items: ReviewItem[]
+  next_after: Json | null
+  has_more: boolean
+} {
+  if (!isJsonRecord(data)) {
+    throw new Error('Invalid list_review_items_page_v2 response.')
+  }
+  const rawItems = data.items
+  const items = Array.isArray(rawItems)
+    ? (rawItems as unknown as ReviewItem[]).filter((row) => isJsonRecordWithId(row))
+    : []
+  const na = data.next_after
+  const next_after = na === null || na === undefined ? null : (na as Json)
+  return {
+    items,
+    next_after,
+    has_more: data.has_more === true,
+  }
+}
+
+export type ReviewItemsPageRequest = {
+  dataset_id: string
+  limit: number
+  after?: Json | null
+  entity_type?: string | null
+  verdict?: ReviewItem['verdict'] | null
+  search?: string | null
+}
+
+export type FetchReviewItemsPageArgs = {
+  datasetId: string
+  limit: number
+  after?: Json | null
+  entityType?: string | null
+  verdict?: ReviewItem['verdict'] | null
+  search?: string | null
+}
+
+export type ReviewItemsPageResult = {
+  items: ReviewItem[]
+  next_after: Json | null
+  has_more: boolean
+}
+
+function buildReviewItemsPageRequest(args: FetchReviewItemsPageArgs): ReviewItemsPageRequest {
+  return {
+    dataset_id: args.datasetId,
+    limit: args.limit,
+    after: args.after ?? null,
+    entity_type: args.entityType ?? null,
+    verdict: args.verdict ?? null,
+    search: args.search?.trim() || null,
+  }
+}
+
+export async function countReviewItemsFiltered(
+  args: FetchReviewItemsPageArgs,
+): Promise<DatasetReviewItemCounts> {
+  const { data, error } = await supabase.rpc('count_review_items_filtered', {
+    p_request: buildReviewItemsPageRequest(args) as Json,
+  })
   if (error) throw error
-  return data ?? []
+  return parseDatasetReviewCounts(data)
+}
+
+export async function fetchReviewItemsPage(
+  args: FetchReviewItemsPageArgs,
+): Promise<ReviewItemsPageResult> {
+  const { data, error } = await supabase.rpc('list_review_items_page_v2', {
+    p_request: buildReviewItemsPageRequest(args) as Json,
+  })
+  if (error) throw error
+  return parseListReviewItemsPagePayload(data)
 }
 
 export async function getReviewBundle(sampleId: string): Promise<ReviewBundle> {

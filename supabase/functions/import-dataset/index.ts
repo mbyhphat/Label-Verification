@@ -889,19 +889,20 @@ function buildReviewRows(
 
     const span = findMatchingSpan(item, spanLookup, spanUsage)
     if (!span) missingSpans += 1
+    const spanObject = asObject(span)
 
     reviewRows.push({
       sample_index: sample.sample_index,
       audit_record_id: intOrNull(item.id),
       value,
-      start_offset: pickFirstInt(asObject(span).start, item.start),
-      end_offset: pickFirstInt(asObject(span).end, item.end),
+      start_offset: pickFirstInt(spanObject.start, item.start),
+      end_offset: pickFirstInt(spanObject.end, item.end),
       verdict: String(item.verdict),
       reason: stringValue(item.reason),
       suggested_label: stringValue(item.suggested_label),
       replacement_value: stringValue(item.replacement_value),
       raw_audit: item,
-      raw_export_span: asObject(span),
+      raw_export_span: compactExportSpan(spanObject),
     })
   }
 
@@ -911,6 +912,14 @@ function buildReviewRows(
 
   void entityType
   return [reviewRows, warnings]
+}
+
+function compactExportSpan(span: JsonObject): JsonObject {
+  const stored: JsonObject = {}
+  for (const key of ['sample_id', 'id', 'value', 'start', 'end', 'label', 'language', 'type']) {
+    if (span[key] !== undefined) stored[key] = span[key]
+  }
+  return stored
 }
 
 function buildSpanLookup(exportSpans: JsonObject[]) {

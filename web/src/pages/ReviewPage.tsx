@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
-import { AlertTriangle, Check, Search, XCircle } from 'lucide-react'
+import { AlertTriangle, Check, ChevronLeft, ChevronRight, Search, XCircle } from 'lucide-react'
 import { AppHeader } from '@/components/AppHeader'
+import { Button } from '@/components/ui/button'
 import { getProjectPiiConfig } from '@/features/admin/api/pii-config.api'
 import { openSample } from '@/features/review/api/review.api'
 import { DatasetSidebar } from '@/features/review/components/DatasetSidebar'
@@ -88,7 +89,24 @@ async function loadCachedProjectLabels(projectId: string, forceRefresh = false):
   return request
 }
 
+function useDebouncedValue<T>(value: T, delayMs: number): T {
+  const [debouncedValue, setDebouncedValue] = useState(value)
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedValue(value), delayMs)
+    return () => window.clearTimeout(timer)
+  }, [delayMs, value])
+
+  return debouncedValue
+}
+
 export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps) {
+  // ── Local UI state ─────────────────────────────────────────────
+  const [verdictFilter, setVerdictFilter] = useState<VerdictFilter>('ALL')
+  const [searchQuery, setSearchQuery] = useState('')
+  const debouncedSearchQuery = useDebouncedValue(searchQuery, 350)
+  const activeVerdictFilter = verdictFilter === 'ALL' ? null : verdictFilter
+
   const {
     datasets,
     activeDataset,
@@ -104,17 +122,20 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
     saving,
     notice,
     stats,
+    pageInfo,
     selectDataset,
     selectEntityType,
+    loadNextPage,
+    loadPreviousPage,
     openItem,
     submitDecision,
     saveSampleMask,
     releaseLock,
-  } = useReviewWorkspace(session)
+  } = useReviewWorkspace(session, {
+    verdict: activeVerdictFilter,
+    search: debouncedSearchQuery,
+  })
 
-  // ── Local UI state ─────────────────────────────────────────────
-  const [verdictFilter, setVerdictFilter] = useState<VerdictFilter>('ALL')
-  const [searchQuery, setSearchQuery] = useState('')
   const [modalItemId, setModalItemId] = useState<string | null>(null)
   const filteredItemsRef = useRef<ReviewItem[]>([])
   const submittedItemIdsRef = useRef<Set<string>>(new Set())
@@ -157,24 +178,7 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
   }, [activeProjectId])
 
   // ── Derived state ──────────────────────────────────────────────
-  const filteredItems = useMemo(() => {
-    let result = items
-    if (verdictFilter !== 'ALL') {
-      result = result.filter((i) => i.verdict === verdictFilter)
-    }
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase()
-      result = result.filter(
-        (i) =>
-          i.value.toLowerCase().includes(q) ||
-          (i.reason?.toLowerCase().includes(q) ?? false) ||
-          (i.suggested_label?.toLowerCase().includes(q) ?? false) ||
-          i.entity_type.toLowerCase().includes(q) ||
-          i.sample_key.toLowerCase().includes(q),
-      )
-    }
-    return result
-  }, [items, verdictFilter, searchQuery])
+  const filteredItems = items
 
   useEffect(() => {
     filteredItemsRef.current = filteredItems
@@ -182,16 +186,16 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
 
   useEffect(() => {
     submittedItemIdsRef.current = new Set()
-  }, [activeDataset?.id, activeEntityType])
+  }, [activeDataset?.id, activeEntityType, debouncedSearchQuery, verdictFilter])
 
   const verdictCounts = useMemo(
     () => ({
-      total: items.length,
-      correct: items.filter((i) => i.verdict === 'CORRECT').length,
-      wrong: items.filter((i) => i.verdict === 'WRONG_LABEL').length,
-      unrealistic: items.filter((i) => i.verdict === 'UNREALISTIC_VALUE').length,
+      total: stats.total,
+      correct: stats.correct,
+      wrong: stats.wrong_label,
+      unrealistic: stats.unrealistic_value,
     }),
-    [items],
+    [stats.correct, stats.total, stats.unrealistic_value, stats.wrong_label],
   )
 
   const modalItemIndex = useMemo(
@@ -266,10 +270,43 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
   }, [modalItemIndex, filteredItems, acquiringLock, submittingItemId, navigateToItem])
 
   const handleModalNext = useCallback(() => {
-    if (modalItemIndex < filteredItems.length - 1 && !acquiringLock && submittingItemId === null) {
+    if (acquiringLock || submittingItemId !== null) return
+
+    if (modalItemIndex < filteredItems.length - 1) {
       void navigateToItem(filteredItems[modalItemIndex + 1])
+      return
     }
-  }, [modalItemIndex, filteredItems, acquiringLock, submittingItemId, navigateToItem])
+
+    if (pageInfo.hasMore) {
+      void loadNextPage().then((nextPageItems) => {
+        const nextItem =
+          nextPageItems.find((candidate) =>
+            isActionableReviewItem(candidate, submittedItemIdsRef.current),
+          ) ?? nextPageItems[0] ?? null
+        if (nextItem) void navigateToItem(nextItem)
+      })
+    }
+  }, [
+    acquiringLock,
+    filteredItems,
+    loadNextPage,
+    modalItemIndex,
+    navigateToItem,
+    pageInfo.hasMore,
+    submittingItemId,
+  ])
+
+  const handleNextPage = useCallback(() => {
+    setModalItemId(null)
+    if (activeSample) void releaseLock(activeSample.id)
+    void loadNextPage()
+  }, [activeSample, loadNextPage, releaseLock])
+
+  const handlePreviousPage = useCallback(() => {
+    setModalItemId(null)
+    if (activeSample) void releaseLock(activeSample.id)
+    void loadPreviousPage()
+  }, [activeSample, loadPreviousPage, releaseLock])
 
   const handleModalSubmit = useCallback(
     async (
@@ -287,8 +324,7 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
 
       try {
         // Pre-compute for opportunistic prefetching before the network round-trip.
-        // This value may become stale if filteredItems is refreshed during submit,
-        // so we re-compute the authoritative next item after submit completes.
+        // Next item after submit uses the authoritative re-computation below — not this value.
         const precomputedNext = findNextActionableItem(
           filteredItemsRef.current,
           item.id,
@@ -316,9 +352,8 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
 
         submittedItemIdsRef.current = new Set(submittedItemIdsRef.current).add(item.id)
 
-        // Re-compute after submit so that filteredItems state refreshed during the
-        // network call (e.g. silentRefreshItems) and the newly-submitted item are
-        // both reflected — preventing navigation to a stale/already-accepted item.
+        // Re-compute after submit: local patch (upsertReviewItem) + submittedItemIdsRef
+        // must both be reflected before auto-advance.
         const nextItem = findNextActionableItem(
           filteredItemsRef.current,
           item.id,
@@ -346,6 +381,20 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
           void prefetchedBundlePromise.then((bundle) => {
             if (bundle) void releaseLock(bundle.sample.id).catch(() => {})
           })
+
+          if (pageInfo.hasMore) {
+            const nextPageItems = await loadNextPage()
+            const nextPageItem =
+              nextPageItems.find((candidate) =>
+                isActionableReviewItem(candidate, submittedItemIdsRef.current),
+              ) ?? null
+
+            if (nextPageItem) {
+              await navigateToItem(nextPageItem)
+              return
+            }
+          }
+
           setModalItemId(null)
         }
       } finally {
@@ -355,7 +404,7 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
         }
       }
     },
-    [projectLabelOptions, releaseLock, submitDecision, navigateToItem],
+    [loadNextPage, navigateToItem, pageInfo.hasMore, projectLabelOptions, releaseLock, submitDecision],
   )
 
   const handleModalSaveSampleMask = useCallback(
@@ -528,10 +577,34 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
                 />
               </div>
 
-              {/* Result count */}
-              <span className="ml-auto text-sm" style={{ color: '#aeb7c8' }}>
-                {filteredItems.length} / {items.length}
-              </span>
+              {/* Pagination controls */}
+              <div className="ml-auto flex items-center gap-2">
+                <span className="text-sm tabular-nums" style={{ color: '#aeb7c8' }}>
+                  {filteredItems.length} of {pageInfo.filteredTotal} · Page {pageInfo.pageIndex}
+                </span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={loadingItems || pageInfo.pageIndex <= 1}
+                  onClick={handlePreviousPage}
+                  aria-label="Previous review items page"
+                >
+                  <ChevronLeft aria-hidden="true" className="h-4 w-4" />
+                  Previous
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={loadingItems || !pageInfo.hasMore}
+                  onClick={handleNextPage}
+                  aria-label="Next review items page"
+                >
+                  Next
+                  <ChevronRight aria-hidden="true" className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
           </div>
 

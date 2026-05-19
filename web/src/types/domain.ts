@@ -58,6 +58,14 @@ export type ProjectClassStatistic = {
   dataset_count: number
 }
 
+export type ProjectDecisionLeaderboardRow = {
+  user_id: string
+  email: string | null
+  role: ProjectRole | null
+  decide_count: number
+  last_decided_at: string | null
+}
+
 export type Dataset = {
   id: string
   project_id: string

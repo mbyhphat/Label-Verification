@@ -5,6 +5,7 @@ import type {
   LabelingProject,
   PiiEntityType,
   ProjectClassStatistic,
+  ProjectDecisionLeaderboardRow,
   ProjectPiiConfig,
   ProjectPiiConfigResponse,
   ProjectMember,
@@ -88,11 +89,31 @@ export type Database = {
         }
         Returns: ReviewBundle
       }
-      list_review_items: {
+      list_review_items_page: {
+        Args: {
+          p_dataset_id: string
+          p_limit: number
+          p_after?: Json | null
+        }
+        Returns: Json
+      }
+      count_review_items_by_dataset: {
         Args: {
           p_dataset_id: string
         }
-        Returns: ReviewItem[]
+        Returns: Json
+      }
+      list_review_items_page_v2: {
+        Args: {
+          p_request: Json
+        }
+        Returns: Json
+      }
+      count_review_items_filtered: {
+        Args: {
+          p_request: Json
+        }
+        Returns: Json
       }
       submit_review_decision: {
         Args: {
@@ -154,6 +175,12 @@ export type Database = {
         }
         Returns: ProjectClassStatistic[]
       }
+      list_project_decision_leaderboard: {
+        Args: {
+          p_project_id: string
+        }
+        Returns: ProjectDecisionLeaderboardRow[]
+      }
     }
     Enums: Record<string, never>
     CompositeTypes: Record<string, never>
@@ -167,6 +194,7 @@ export type {
   PiiEntityType,
   ProjectMember,
   ProjectClassStatistic,
+  ProjectDecisionLeaderboardRow,
   ProjectPiiConfig,
   ReviewItem,
   ReviewSample,
