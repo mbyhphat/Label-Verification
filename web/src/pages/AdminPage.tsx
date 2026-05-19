@@ -28,6 +28,7 @@ import { FolderUploadZone } from '@/features/admin/components/FolderUploadZone'
 import { ImportPreview } from '@/features/admin/components/ImportPreview'
 import { ImportProgress } from '@/features/admin/components/ImportProgress'
 import { ProjectClassStatsPanel } from '@/features/admin/components/ProjectClassStatsPanel'
+import { ProjectDecisionLeaderboardPanel } from '@/features/admin/components/ProjectDecisionLeaderboardPanel'
 import { ProjectPiiConfigPanel } from '@/features/admin/components/ProjectPiiConfigPanel'
 
 type AdminPageProps = {
@@ -241,6 +242,11 @@ export function AdminPage({
               />
               <ProjectClassStatsPanel
                 key={activeProjectId}
+                projectId={activeProjectId}
+                refreshKey={classStatsRefreshKey}
+              />
+              <ProjectDecisionLeaderboardPanel
+                key={`${activeProjectId}-leaderboard`}
                 projectId={activeProjectId}
                 refreshKey={classStatsRefreshKey}
               />
