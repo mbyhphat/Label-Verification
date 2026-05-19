@@ -4,7 +4,10 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import { AlertTriangle, Check, XCircle } from 'lucide-react'
 import type { ReviewItem, ReviewSample } from '@/types/domain'
 
+export type ReviewTableMode = 'review' | 'labeled'
+
 type ReviewTableProps = {
+  mode?: ReviewTableMode
   items: ReviewItem[]
   samplesById: Map<string, ReviewSample>
   activeItemId: string | null
@@ -14,8 +17,10 @@ type ReviewTableProps = {
 
 type IconComponent = typeof Check
 
-/** Shared by header row and data rows — absolute-positioned `<tr>` breaks table layout, so we use CSS Grid. */
-const GRID_TEMPLATE_COLUMNS = 'minmax(116px, 12fr) minmax(144px, 18fr) minmax(220px, 38fr) minmax(124px, 14fr) minmax(112px, 12fr) minmax(72px, 6fr)'
+const REVIEW_GRID_TEMPLATE_COLUMNS =
+  'minmax(116px, 12fr) minmax(144px, 18fr) minmax(220px, 38fr) minmax(124px, 14fr) minmax(112px, 12fr) minmax(72px, 6fr)'
+const LABELED_GRID_TEMPLATE_COLUMNS =
+  'minmax(150px, 14fr) minmax(144px, 16fr) minmax(220px, 34fr) minmax(124px, 13fr) minmax(124px, 12fr) minmax(116px, 10fr)'
 
 const VERDICT_BADGE: Record<
   string,
@@ -62,6 +67,19 @@ function getDecisionLabel(
   return { label: 'Denied', color: '#f87171', Icon: XCircle }
 }
 
+function formatLabeledAt(decidedAt: string | null, updatedAt: string): string {
+  const raw = decidedAt ?? updatedAt
+  const date = new Date(raw)
+  if (Number.isNaN(date.getTime())) return 'Unknown'
+
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date)
+}
+
 const TH_STYLE: CSSProperties = {
   textAlign: 'left',
   padding: '11px 12px',
@@ -75,11 +93,11 @@ const TH_STYLE: CSSProperties = {
   userSelect: 'none',
 }
 
-const HEADER_GRID_STYLE: CSSProperties = {
-  display: 'grid',
-  gridTemplateColumns: GRID_TEMPLATE_COLUMNS,
-  width: '100%',
-  alignItems: 'center',
+const CELL_STYLE: CSSProperties = {
+  padding: '11px 12px',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
 }
 
 function isActivationKey(event: KeyboardEvent<HTMLElement>): boolean {
@@ -87,6 +105,7 @@ function isActivationKey(event: KeyboardEvent<HTMLElement>): boolean {
 }
 
 export function ReviewTable({
+  mode = 'review',
   items,
   samplesById,
   activeItemId,
@@ -94,6 +113,8 @@ export function ReviewTable({
   onOpenItem,
 }: ReviewTableProps) {
   const parentRef = useRef<HTMLDivElement>(null)
+  const gridTemplateColumns =
+    mode === 'labeled' ? LABELED_GRID_TEMPLATE_COLUMNS : REVIEW_GRID_TEMPLATE_COLUMNS
 
   const rowVirtualizer = useVirtualizer({
     count: items.length,
@@ -106,7 +127,9 @@ export function ReviewTable({
     return (
       <div className="flex-1 flex items-center justify-center bg-background">
         <p className="rounded-lg border border-border/80 bg-card px-5 py-4 text-base text-muted-foreground">
-          No items match the current filter.
+          {mode === 'labeled'
+            ? 'No labeled items match the current filter.'
+            : 'No items match the current filter.'}
         </p>
       </div>
     )
@@ -124,32 +147,41 @@ export function ReviewTable({
             borderBottom: '2px solid #343b50',
           }}
         >
-          <div role="row" style={HEADER_GRID_STYLE}>
-            <div role="columnheader" style={TH_STYLE}>
-              Sample
-            </div>
-            <div role="columnheader" style={TH_STYLE}>
-              Class
-            </div>
-            <div role="columnheader" style={TH_STYLE}>
-              Value
-            </div>
-            <div role="columnheader" style={TH_STYLE}>
-              Verdict
-            </div>
-            <div role="columnheader" style={TH_STYLE}>
-              Status
-            </div>
-            <div role="columnheader" style={TH_STYLE}>
-              Lock
-            </div>
+          <div
+            role="row"
+            style={{
+              display: 'grid',
+              gridTemplateColumns,
+              width: '100%',
+              alignItems: 'center',
+            }}
+          >
+            {mode === 'labeled' ? (
+              <>
+                <div role="columnheader" style={TH_STYLE}>Labeled at</div>
+                <div role="columnheader" style={TH_STYLE}>Class</div>
+                <div role="columnheader" style={TH_STYLE}>Value</div>
+                <div role="columnheader" style={TH_STYLE}>Verdict</div>
+                <div role="columnheader" style={TH_STYLE}>Decision</div>
+                <div role="columnheader" style={TH_STYLE}>Sample</div>
+              </>
+            ) : (
+              <>
+                <div role="columnheader" style={TH_STYLE}>Sample</div>
+                <div role="columnheader" style={TH_STYLE}>Class</div>
+                <div role="columnheader" style={TH_STYLE}>Value</div>
+                <div role="columnheader" style={TH_STYLE}>Verdict</div>
+                <div role="columnheader" style={TH_STYLE}>Status</div>
+                <div role="columnheader" style={TH_STYLE}>Lock</div>
+              </>
+            )}
           </div>
         </div>
 
         <div
           role="presentation"
           style={{
-            height: `${rowVirtualizer.getTotalSize()}px`,
+            height: rowVirtualizer.getTotalSize() + 'px',
             position: 'relative',
             width: '100%',
           }}
@@ -178,7 +210,12 @@ export function ReviewTable({
                 role="button"
                 data-index={virtualRow.index}
                 tabIndex={0}
-                aria-label={`Open sample ${item.sample_key.split('#').at(-1)} for ${item.value}`}
+                aria-label={
+                  (mode === 'labeled' ? 'Open labeled sample ' : 'Open sample ') +
+                  item.sample_key.split('#').at(-1) +
+                  ' for ' +
+                  item.value
+                }
                 onClick={() => onOpenItem(item)}
                 onKeyDown={(event) => {
                   if (!isActivationKey(event)) return
@@ -191,10 +228,10 @@ export function ReviewTable({
                   top: 0,
                   left: 0,
                   width: '100%',
-                  height: `${virtualRow.size}px`,
-                  transform: `translateY(${virtualRow.start}px)`,
+                  height: virtualRow.size + 'px',
+                  transform: 'translateY(' + virtualRow.start + 'px)',
                   display: 'grid',
-                  gridTemplateColumns: GRID_TEMPLATE_COLUMNS,
+                  gridTemplateColumns,
                   alignItems: 'center',
                   borderBottom: '1px solid #343b50',
                   cursor: 'pointer',
@@ -210,29 +247,36 @@ export function ReviewTable({
                   ;(e.currentTarget as HTMLElement).style.background = rowBg
                 }}
               >
-                <div
-                  style={{
-                    padding: '11px 12px',
-                    fontFamily: 'monospace',
-                    fontSize: '13px',
-                    color: '#aeb7c8',
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                  }}
-                >
-                  {item.sample_key.split('#').at(-1)}
-                </div>
+                {mode === 'labeled' ? (
+                  <div
+                    style={{
+                      ...CELL_STYLE,
+                      fontSize: '13px',
+                      color: '#aeb7c8',
+                      fontVariantNumeric: 'tabular-nums',
+                    }}
+                  >
+                    {formatLabeledAt(item.decided_at, item.updated_at)}
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      ...CELL_STYLE,
+                      fontFamily: 'monospace',
+                      fontSize: '13px',
+                      color: '#aeb7c8',
+                    }}
+                  >
+                    {item.sample_key.split('#').at(-1)}
+                  </div>
+                )}
 
                 <div
                   style={{
-                    padding: '11px 12px',
+                    ...CELL_STYLE,
                     fontSize: '13px',
                     fontWeight: 500,
                     color: '#aeb7c8',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
                   }}
                 >
                   {item.entity_type}
@@ -240,13 +284,10 @@ export function ReviewTable({
 
                 <div
                   style={{
-                    padding: '11px 12px',
+                    ...CELL_STYLE,
                     fontFamily: 'monospace',
                     fontSize: '13px',
                     color: '#edf0f7',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
                   }}
                 >
                   {item.value}
@@ -267,7 +308,7 @@ export function ReviewTable({
                         letterSpacing: 0,
                         background: badge.bg,
                         color: badge.color,
-                        border: `1px solid ${badge.border}`,
+                        border: '1px solid ' + badge.border,
                       }}
                     >
                       {BadgeIcon && <BadgeIcon aria-hidden="true" className="h-3.5 w-3.5" />}
@@ -308,22 +349,35 @@ export function ReviewTable({
                   )}
                 </div>
 
-                <div style={{ padding: '11px 12px' }}>
-                  <span
+                {mode === 'labeled' ? (
+                  <div
                     style={{
+                      ...CELL_STYLE,
+                      fontFamily: 'monospace',
                       fontSize: '13px',
-                      fontWeight: 500,
-                      color:
-                        lockLabel === 'Yours'
-                          ? '#edf0f7'
-                          : lockLabel === 'Locked'
-                            ? '#f87171'
-                            : '#aeb7c8',
+                      color: '#aeb7c8',
                     }}
                   >
-                    {lockLabel}
-                  </span>
-                </div>
+                    {item.sample_key.split('#').at(-1)}
+                  </div>
+                ) : (
+                  <div style={{ padding: '11px 12px' }}>
+                    <span
+                      style={{
+                        fontSize: '13px',
+                        fontWeight: 500,
+                        color:
+                          lockLabel === 'Yours'
+                            ? '#edf0f7'
+                            : lockLabel === 'Locked'
+                              ? '#f87171'
+                              : '#aeb7c8',
+                      }}
+                    >
+                      {lockLabel}
+                    </span>
+                  </div>
+                )}
               </div>
             )
           })}

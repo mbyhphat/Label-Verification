@@ -115,6 +115,18 @@ export type Database = {
         }
         Returns: Json
       }
+      list_labeled_review_items_page: {
+        Args: {
+          p_request: Json
+        }
+        Returns: Json
+      }
+      count_labeled_review_items_filtered: {
+        Args: {
+          p_request: Json
+        }
+        Returns: Json
+      }
       submit_review_decision: {
         Args: {
           p_review_item_id: string

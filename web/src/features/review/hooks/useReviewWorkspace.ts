@@ -12,8 +12,11 @@ import type {
 } from '@/types/domain'
 import {
   acquireSampleLock,
+  countLabeledReviewItemsFiltered,
   countReviewItemsFiltered,
+  fetchLabeledReviewItemsPage,
   fetchReviewItemsPage,
+  getReviewBundle,
   openSample,
   releaseSampleLock,
   submitReviewDecision,
@@ -29,6 +32,7 @@ const REVIEW_PAGE_POLL_INTERVAL_MS = 60_000
 const REVIEW_COUNTS_POLL_INTERVAL_MS = 120_000
 
 export type CountsStatus = 'idle' | 'loading' | 'ready' | 'error'
+export type ReviewViewMode = 'review' | 'labeled'
 
 function getLastDatasetId(): string | null {
   return localStorage.getItem(LAST_DATASET_KEY)
@@ -73,6 +77,7 @@ export type ReviewWorkspaceFilters = {
 
 type OpenItemOptions = {
   forceAcquireLock?: boolean
+  readOnly?: boolean
 }
 
 type LoadItemsOptions = {
@@ -93,6 +98,8 @@ export type ReviewWorkspaceState = {
   samplesById: Map<string, ReviewSample>
   activeItem: ReviewItem | null
   activeSample: ReviewSample | null
+  activeItemReadOnly: boolean
+  viewMode: ReviewViewMode
   loadingDatasets: boolean
   loadingItems: boolean
   acquiringLock: boolean
@@ -105,6 +112,7 @@ export type ReviewWorkspaceState = {
   countsStatus: CountsStatus
   selectDataset: (dataset: Dataset) => Promise<void>
   selectEntityType: (entityType: string | null) => void
+  selectViewMode: (mode: ReviewViewMode) => void
   loadNextPage: () => Promise<ReviewItem[]>
   loadPreviousPage: () => Promise<ReviewItem[]>
   refreshCurrentPage: () => Promise<ReviewItem[]>
@@ -165,6 +173,11 @@ function patchReviewItem(items: ReviewItem[], item: ReviewItem): ReviewItem[] {
   return next
 }
 
+function includeActiveEntityType(entityTypes: string[], activeEntityType: string | null): string[] {
+  if (!activeEntityType || entityTypes.includes(activeEntityType)) return entityTypes
+  return [activeEntityType, ...entityTypes]
+}
+
 export function useReviewWorkspace(
   session: Session,
   filters: ReviewWorkspaceFilters = {},
@@ -174,11 +187,13 @@ export function useReviewWorkspace(
   const [allItems, setAllItems] = useState<ReviewItem[]>([])
   const [activeEntityType, setActiveEntityType] = useState<string | null>(null)
   const [availableEntityTypes, setAvailableEntityTypes] = useState<string[]>([])
+  const [viewMode, setViewMode] = useState<ReviewViewMode>('review')
   const [reviewCounts, setReviewCounts] = useState<DatasetReviewItemCounts>(() => createEmptyCounts())
   const [pageInfo, setPageInfo] = useState<ReviewPageInfo>(() => createInitialPageInfo())
   const [samplesById, setSamplesById] = useState<Map<string, ReviewSample>>(() => new Map())
   const [activeItem, setActiveItem] = useState<ReviewItem | null>(null)
   const [activeSample, setActiveSample] = useState<ReviewSample | null>(null)
+  const [activeItemReadOnly, setActiveItemReadOnly] = useState(false)
   const [loadingDatasets, setLoadingDatasets] = useState(true)
   const [loadingItems, setLoadingItems] = useState(false)
   const [acquiringLock, setAcquiringLock] = useState(false)
@@ -188,6 +203,7 @@ export function useReviewWorkspace(
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null)
   const [countsStatus, setCountsStatus] = useState<CountsStatus>('idle')
   const activeDatasetIdRef = useRef<string | null>(null)
+  const viewModeRef = useRef<ReviewViewMode>('review')
   const loadRequestIdRef = useRef(0)
   const countsRefreshInFlightRef = useRef(false)
   const pageRefreshInFlightRef = useRef(false)
@@ -228,6 +244,10 @@ export function useReviewWorkspace(
   }, [activeDataset?.id])
 
   useEffect(() => {
+    viewModeRef.current = viewMode
+  }, [viewMode])
+
+  useEffect(() => {
     allItemsRef.current = allItems
   }, [allItems])
 
@@ -249,13 +269,16 @@ export function useReviewWorkspace(
 
   const refreshCounts = useCallback(async () => {
     const datasetId = activeDatasetIdRef.current
+    const mode = viewModeRef.current
     if (!datasetId || countsRefreshInFlightRef.current) return
 
     countsRefreshInFlightRef.current = true
     setCountsStatus('loading')
 
     try {
-      const nextCounts = await countReviewItemsFiltered({
+      const countFiltered =
+        mode === 'labeled' ? countLabeledReviewItemsFiltered : countReviewItemsFiltered
+      const nextCounts = await countFiltered({
         datasetId,
         limit: REVIEW_ITEMS_PAGE_SIZE,
         entityType: activeEntityType,
@@ -263,13 +286,13 @@ export function useReviewWorkspace(
         search: searchFilter,
       })
 
-      if (activeDatasetIdRef.current !== datasetId) return
+      if (activeDatasetIdRef.current !== datasetId || viewModeRef.current !== mode) return
       setReviewCounts(nextCounts)
-      setAvailableEntityTypes(nextCounts.entity_types)
+      setAvailableEntityTypes(includeActiveEntityType(nextCounts.entity_types, activeEntityType))
       setPageInfo((prev) => ({ ...prev, filteredTotal: nextCounts.filtered_total }))
       setCountsStatus('ready')
     } catch {
-      if (activeDatasetIdRef.current === datasetId) {
+      if (activeDatasetIdRef.current === datasetId && viewModeRef.current === mode) {
         setCountsStatus('error')
       }
     } finally {
@@ -289,16 +312,18 @@ export function useReviewWorkspace(
       const showLoading = options.showLoading ?? true
       const clearActive = options.clearActive ?? true
       const showNotice = options.showNotice ?? showLoading
+      const mode = viewModeRef.current
 
       if (showLoading) {
         setLoadingItems(true)
-        setNotice('Loading review items...')
+        setNotice(mode === 'labeled' ? 'Loading labeled items...' : 'Loading review items...')
       } else if (showNotice) {
         setNotice('Refreshing...')
       }
 
       try {
-        const nextPage = await fetchReviewItemsPage({
+        const fetchPage = mode === 'labeled' ? fetchLabeledReviewItemsPage : fetchReviewItemsPage
+        const nextPage = await fetchPage({
           datasetId: dataset.id,
           limit: REVIEW_ITEMS_PAGE_SIZE,
           after: cursor,
@@ -307,7 +332,11 @@ export function useReviewWorkspace(
           search: searchFilter,
         })
 
-        if (loadRequestIdRef.current !== requestId || activeDatasetIdRef.current !== dataset.id) {
+        if (
+          loadRequestIdRef.current !== requestId ||
+          activeDatasetIdRef.current !== dataset.id ||
+          viewModeRef.current !== mode
+        ) {
           return []
         }
 
@@ -325,6 +354,7 @@ export function useReviewWorkspace(
           setSamplesById(new Map())
           setActiveItem(null)
           setActiveSample(null)
+          setActiveItemReadOnly(false)
         }
         setLastSyncedAt(new Date().toISOString())
         if (showNotice) {
@@ -333,7 +363,11 @@ export function useReviewWorkspace(
         void refreshCounts()
         return nextPage.items
       } catch (err) {
-        if (loadRequestIdRef.current === requestId && showNotice) {
+        if (
+          loadRequestIdRef.current === requestId &&
+          viewModeRef.current === mode &&
+          showNotice
+        ) {
           setNotice(formatSupabaseError(err))
         }
         return []
@@ -436,6 +470,10 @@ export function useReviewWorkspace(
           setAllItems([])
           setAvailableEntityTypes([])
           setReviewCounts(createEmptyCounts())
+          setSamplesById(new Map())
+          setActiveItem(null)
+          setActiveSample(null)
+          setActiveItemReadOnly(false)
           setPageInfo(createInitialPageInfo())
           setCountsStatus('idle')
           setLastSyncedAt(null)
@@ -468,7 +506,7 @@ export function useReviewWorkspace(
     }, 0)
 
     return () => window.clearTimeout(timer)
-  }, [activeDataset, loadItems])
+  }, [activeDataset, loadItems, viewMode])
 
   useEffect(() => {
     if (!activeDataset) return undefined
@@ -509,7 +547,7 @@ export function useReviewWorkspace(
   // ── Lock refresh: renew every 30 s while held ──────────────────────
 
   useEffect(() => {
-    if (!activeSample) return undefined
+    if (!activeSample || activeItemReadOnly) return undefined
 
     const timer = window.setInterval(() => {
       const isOwnLock =
@@ -525,13 +563,13 @@ export function useReviewWorkspace(
     }, 30_000)
 
     return () => window.clearInterval(timer)
-  }, [activeSample, session.user.id])
+  }, [activeItemReadOnly, activeSample, session.user.id])
 
   // ── Public actions ─────────────────────────────────────────────────
 
   const selectDataset = useCallback(
     async (dataset: Dataset) => {
-      if (activeSample?.locked_by === session.user.id) {
+      if (!activeItemReadOnly && activeSample?.locked_by === session.user.id) {
         await releaseActive()
       }
       saveLastDatasetId(dataset.id)
@@ -544,16 +582,17 @@ export function useReviewWorkspace(
       setSamplesById(new Map())
       setActiveItem(null)
       setActiveSample(null)
+      setActiveItemReadOnly(false)
       setPageInfo(createInitialPageInfo())
       setCountsStatus('idle')
       setLastSyncedAt(null)
     },
-    [activeSample?.locked_by, session.user.id, releaseActive],
+    [activeItemReadOnly, activeSample?.locked_by, session.user.id, releaseActive],
   )
 
   const selectEntityType = useCallback(
     (entityType: string | null) => {
-      if (activeSample?.locked_by === session.user.id) {
+      if (!activeItemReadOnly && activeSample?.locked_by === session.user.id) {
         void releaseActive()
       }
       setActiveEntityType(entityType)
@@ -561,11 +600,36 @@ export function useReviewWorkspace(
       setReviewCounts({ ...createEmptyCounts(), entity_types: availableEntityTypes })
       setActiveItem(null)
       setActiveSample(null)
+      setActiveItemReadOnly(false)
       setPageInfo(createInitialPageInfo())
       setCountsStatus('idle')
       setLastSyncedAt(null)
     },
-    [activeSample?.locked_by, availableEntityTypes, session.user.id, releaseActive],
+    [activeItemReadOnly, activeSample?.locked_by, availableEntityTypes, session.user.id, releaseActive],
+  )
+
+  const selectViewMode = useCallback(
+    (mode: ReviewViewMode) => {
+      if (viewModeRef.current === mode) return
+
+      if (!activeItemReadOnly && activeSample?.locked_by === session.user.id) {
+        void releaseActive()
+      }
+
+      viewModeRef.current = mode
+      setViewMode(mode)
+      setAllItems([])
+      setReviewCounts({ ...createEmptyCounts(), entity_types: availableEntityTypes })
+      setSamplesById(new Map())
+      setActiveItem(null)
+      setActiveSample(null)
+      setActiveItemReadOnly(false)
+      setPageInfo(createInitialPageInfo())
+      setCountsStatus('idle')
+      setLastSyncedAt(null)
+      setNotice('')
+    },
+    [activeItemReadOnly, activeSample?.locked_by, availableEntityTypes, releaseActive, session.user.id],
   )
 
   const loadNextPage = useCallback(async () => {
@@ -599,20 +663,56 @@ export function useReviewWorkspace(
     ) => {
       setNotice('')
 
+      const readOnly = options.readOnly === true
       const isSameSample = activeSample?.id === item.sample_row_id
       const hasMatchingPrefetch = prefetchedBundle?.sample.id === item.sample_row_id
+      const listItem = allItems.find((current) => current.id === item.id) ?? item
 
       if (prefetchedBundle && !hasMatchingPrefetch) {
         void releaseSampleLock(prefetchedBundle.sample.id).catch(() => {})
       }
 
-      // Fast path: lock on this sample is still valid -> just switch the active item.
-      if (!options.forceAcquireLock && isSameSample && isLockValid(activeSample, session.user.id)) {
-        setActiveItem(allItems.find((c) => c.id === item.id) ?? item)
+      if (readOnly) {
+        setActiveItemReadOnly(true)
+        setActiveItem(listItem)
+
+        const cachedSample = samplesById.get(item.sample_row_id)
+        setActiveSample(isSameSample ? (activeSample ?? null) : (cachedSample ?? null))
+
+        if (!hasMatchingPrefetch) {
+          setAcquiringLock(true)
+        }
+
+        try {
+          if (!activeItemReadOnly && activeSample?.id && activeSample.locked_by === session.user.id) {
+            void releaseSampleLock(activeSample.id).catch(() => {})
+          }
+
+          const bundle = hasMatchingPrefetch
+            ? prefetchedBundle
+            : await getReviewBundle(item.sample_row_id)
+          const bundleItem = bundle.items.find((current) => current.id === item.id) ?? listItem
+
+          setSamplesById((prev) => new Map(prev).set(bundle.sample.id, bundle.sample))
+          setActiveSample(bundle.sample)
+          setActiveItem(bundleItem)
+        } catch (err) {
+          setNotice(formatSupabaseError(err))
+        } finally {
+          setAcquiringLock(false)
+        }
         return
       }
 
-      setActiveItem(allItems.find((c) => c.id === item.id) ?? item)
+      setActiveItemReadOnly(false)
+
+      // Fast path: lock on this sample is still valid -> just switch the active item.
+      if (!options.forceAcquireLock && isSameSample && isLockValid(activeSample, session.user.id)) {
+        setActiveItem(listItem)
+        return
+      }
+
+      setActiveItem(listItem)
 
       const cachedSample = samplesById.get(item.sample_row_id)
       setActiveSample(isSameSample ? (activeSample ?? null) : (cachedSample ?? null))
@@ -621,7 +721,7 @@ export function useReviewWorkspace(
         setAcquiringLock(true)
       }
       try {
-        if (activeSample?.id && !isSameSample) {
+        if (!activeItemReadOnly && activeSample?.id && !isSameSample) {
           void releaseSampleLock(activeSample.id).catch(() => {})
         }
 
@@ -636,7 +736,7 @@ export function useReviewWorkspace(
         setAcquiringLock(false)
       }
     },
-    [activeSample, session.user.id, allItems, samplesById],
+    [activeItemReadOnly, activeSample, session.user.id, allItems, samplesById],
   )
 
   const submitDecision = useCallback(
@@ -728,6 +828,8 @@ export function useReviewWorkspace(
     samplesById,
     activeItem,
     activeSample,
+    activeItemReadOnly,
+    viewMode,
     loadingDatasets,
     loadingItems,
     acquiringLock,
@@ -740,6 +842,7 @@ export function useReviewWorkspace(
     countsStatus,
     selectDataset,
     selectEntityType,
+    selectViewMode,
     loadNextPage,
     loadPreviousPage,
     refreshCurrentPage,

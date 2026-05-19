@@ -50,6 +50,26 @@ const VERDICT_STYLE = {
   },
 } as const
 
+function getDecisionDisplay(decision: ReviewDecision | null | undefined) {
+  if (!decision) return null
+  if (decision === 'accept') return { label: 'Accepted', color: '#34d399', Icon: Check }
+  if (decision === 'deny_keep') return { label: 'Kept', color: '#f87171', Icon: XCircle }
+  if (decision === 'deny_remove') return { label: 'Removed', color: '#f87171', Icon: XCircle }
+  return { label: 'Denied', color: '#f87171', Icon: XCircle }
+}
+
+function formatDateTime(value: string | null | undefined): string {
+  if (!value) return 'Unknown'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 'Unknown'
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date)
+}
+
 interface ReviewModalProps {
   item: ReviewItem | null
   sample: ReviewSample | null
@@ -59,6 +79,7 @@ interface ReviewModalProps {
   acquiringLock: boolean
   currentUserId: string
   labelOptions: string[]
+  readOnly?: boolean
   onPrev: () => void
   onNext: () => void
   onClose: () => void
@@ -85,6 +106,7 @@ export function ReviewModal({
   acquiringLock,
   currentUserId,
   labelOptions,
+  readOnly = false,
   onPrev,
   onNext,
   onClose,
@@ -106,7 +128,7 @@ export function ReviewModal({
     pendingDecision && pendingDecision.itemId === currentItemId ? pendingDecision : null
   const hasLock = isOwnLock(sample, currentUserId)
   const isBusy = saving || acquiringLock
-  const canAct = hasLock && !isBusy
+  const canAct = !readOnly && hasLock && !isBusy
 
   // Clear stale queued intent after navigation. The derived item-id guard above
   // prevents it from firing on the wrong item before this cleanup runs.
@@ -163,6 +185,7 @@ export function ReviewModal({
           return
 
         case 'Enter':
+          if (readOnly) return
           if (item && sample) {
             e.preventDefault()
             setShowSubDialog(false)
@@ -175,6 +198,7 @@ export function ReviewModal({
           return
 
         case 'Backspace':
+          if (readOnly) return
           if (item && sample) {
             e.preventDefault()
             if (item.verdict === 'UNREALISTIC_VALUE' || item.verdict === 'WRONG_LABEL') {
@@ -195,7 +219,7 @@ export function ReviewModal({
 
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [canAct, isBusy, item, sample, reviewerNote, saving, acquiringLock, onClose, onNext, onPrev, onSubmit])
+  }, [canAct, isBusy, item, sample, readOnly, reviewerNote, saving, acquiringLock, onClose, onNext, onPrev, onSubmit])
 
   // Auto-fire a queued decision as soon as the lock is acquired and canAct flips true.
   // Guard on itemId so a pending decision queued for item N is never fired on item N+1
@@ -215,6 +239,8 @@ export function ReviewModal({
 
   const verdictStyle = item ? VERDICT_STYLE[item.verdict as keyof typeof VERDICT_STYLE] : null
   const VerdictIcon = verdictStyle?.Icon ?? null
+  const decisionDisplay = getDecisionDisplay(item?.decision)
+  const DecisionDisplayIcon = decisionDisplay?.Icon ?? null
   // Only render source context when the loaded sample actually belongs to the active item,
   // preventing a brief flash of the previous sample's text during navigation.
   const ctxHtml =
@@ -386,16 +412,18 @@ export function ReviewModal({
                     <FileText aria-hidden="true" className="h-3.5 w-3.5" />
                     Source Context
                   </div>
-                  <button
-                    type="button"
-                    disabled={!hasLock || isBusy}
-                    onClick={() => setShowMaskEditor((value) => !value)}
-                    className="inline-flex items-center gap-2 rounded-lg border border-[#343b50] bg-[#252b38] px-3 py-1.5 text-sm font-medium text-[#edf0f7] transition-[background-color,border-color,color,opacity] hover:border-[#60a5fa] hover:text-white disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-[#343b50] disabled:hover:text-[#edf0f7] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#60a5fa]"
-                    aria-expanded={showMaskEditor}
-                  >
-                    <Edit3 aria-hidden="true" className="h-3 w-3" />
-                    {showMaskEditor ? 'Close editor' : 'Edit labels'}
-                  </button>
+                  {!readOnly && (
+                    <button
+                      type="button"
+                      disabled={!hasLock || isBusy}
+                      onClick={() => setShowMaskEditor((value) => !value)}
+                      className="inline-flex items-center gap-2 rounded-lg border border-[#343b50] bg-[#252b38] px-3 py-1.5 text-sm font-medium text-[#edf0f7] transition-[background-color,border-color,color,opacity] hover:border-[#60a5fa] hover:text-white disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-[#343b50] disabled:hover:text-[#edf0f7] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#60a5fa]"
+                      aria-expanded={showMaskEditor}
+                    >
+                      <Edit3 aria-hidden="true" className="h-3 w-3" />
+                      {showMaskEditor ? 'Close editor' : 'Edit labels'}
+                    </button>
+                  )}
                 </div>
                 <div
                   ref={sourceContextRef}
@@ -425,7 +453,7 @@ export function ReviewModal({
               </div>
             )}
 
-            {showMaskEditor && sample && sample.id === item.sample_row_id && (
+            {!readOnly && showMaskEditor && sample && sample.id === item.sample_row_id && (
               <SampleMaskEditor
                 key={`${sample.id}:${sample.version}`}
                 sample={sample}
@@ -440,195 +468,233 @@ export function ReviewModal({
             )}
 
             {/* ── Reviewer note ── */}
-            <div className="mb-5">
-              <textarea
-                aria-label="Reviewer note"
-                name="reviewer-note"
-                autoComplete="off"
-                value={reviewerNote}
-                onChange={(e) => setReviewerNote(e.target.value)}
-                placeholder="Optional reviewer note…"
-                rows={3}
-                className="w-full resize-none rounded-lg px-3.5 py-2.5 text-[15px] transition-[border-color,background-color,color] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#60a5fa]"
-                style={{
-                  background: '#252b38',
-                  border: '1px solid #343b50',
-                  color: '#edf0f7',
-                }}
-                onFocus={(e) => (e.currentTarget.style.borderColor = '#60a5fa')}
-                onBlur={(e) => (e.currentTarget.style.borderColor = '#343b50')}
-              />
-            </div>
+            {readOnly ? (
+              <div className="mb-5 rounded-lg border border-[#343b50] bg-[#252b38] p-4 text-sm">
+                <div className="mb-1 font-medium text-[#aeb7c8]">Reviewer note</div>
+                <div className="whitespace-pre-wrap break-words text-[#edf0f7]">
+                  {item.reviewer_note || 'No note'}
+                </div>
+              </div>
+            ) : (
+              <div className="mb-5">
+                <textarea
+                  aria-label="Reviewer note"
+                  name="reviewer-note"
+                  autoComplete="off"
+                  value={reviewerNote}
+                  onChange={(e) => setReviewerNote(e.target.value)}
+                  placeholder="Optional reviewer note…"
+                  rows={3}
+                  className="w-full resize-none rounded-lg px-3.5 py-2.5 text-[15px] transition-[border-color,background-color,color] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#60a5fa]"
+                  style={{
+                    background: '#252b38',
+                    border: '1px solid #343b50',
+                    color: '#edf0f7',
+                  }}
+                  onFocus={(e) => (e.currentTarget.style.borderColor = '#60a5fa')}
+                  onBlur={(e) => (e.currentTarget.style.borderColor = '#343b50')}
+                />
+              </div>
+            )}
 
             {/* ── Action bar ── */}
-            <div
-              className="pt-4 flex items-center gap-3 flex-wrap"
-              style={{ borderTop: '1px solid #343b50' }}
-            >
-              <span className="text-xs" style={{ color: '#aeb7c8' }}>
-                Decision:
-              </span>
-
-              {/* Accept */}
-              {(() => {
-                // Allow click while lock is being acquired so the intent can be queued;
-                // truly disable only when saving (mid-submit) or genuinely unactionable.
-                const acceptQueued =
-                  pendingDecisionForItem?.decision === 'accept'
-                const acceptClickable = canAct || (acquiringLock && !saving)
-                return (
-                  <button
-                    type="button"
-                    disabled={!acceptClickable}
-                    onClick={() => {
-                      if (!sample || saving) return
-                      setShowSubDialog(false)
-                      if (canAct) {
-                        void onSubmit(item, sample, 'accept', reviewerNote)
-                      } else if (acquiringLock) {
-                        setPendingDecision({ decision: 'accept', note: reviewerNote, itemId: item.id })
-                      }
-                    }}
-                    className="inline-flex items-center gap-2 rounded-lg px-5 py-2 text-[15px] font-semibold transition-[background-color,border-color,color,opacity] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#60a5fa]"
-                    style={{
-                      background: 'rgba(52,211,153,0.12)',
-                      color: '#34d399',
-                      border: '1px solid rgba(52,211,153,0.3)',
-                      opacity: canAct || acceptQueued ? 1 : acceptClickable ? 0.65 : 0.35,
-                      cursor: acceptClickable ? 'pointer' : 'not-allowed',
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!canAct) return
-                      ;(e.currentTarget as HTMLElement).style.background = 'rgba(52,211,153,0.25)'
-                      ;(e.currentTarget as HTMLElement).style.borderColor = '#34d399'
-                    }}
-                    onMouseLeave={(e) => {
-                      ;(e.currentTarget as HTMLElement).style.background = 'rgba(52,211,153,0.12)'
-                      ;(e.currentTarget as HTMLElement).style.borderColor = 'rgba(52,211,153,0.3)'
-                    }}
+            {readOnly ? (
+              <div
+                className="pt-4 flex items-center gap-3 flex-wrap"
+                style={{ borderTop: '1px solid #343b50' }}
+              >
+                <span className="text-xs" style={{ color: '#aeb7c8' }}>
+                  Decision:
+                </span>
+                {decisionDisplay ? (
+                  <span
+                    className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wider"
+                    style={{ color: decisionDisplay.color }}
                   >
-                    {acceptQueued ? (
-                      <LoaderCircle aria-hidden="true" className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Check aria-hidden="true" className="h-3.5 w-3.5" />
+                    {DecisionDisplayIcon && (
+                      <DecisionDisplayIcon aria-hidden="true" className="h-3.5 w-3.5" />
                     )}
-                    Accept
-                    {canAct && (
-                      <kbd
-                        className="ml-1 rounded px-1 py-0.5 text-[11px] font-normal"
-                        style={{
-                          border: '1px solid rgba(52,211,153,0.4)',
-                          opacity: 0.7,
-                        }}
-                      >
-                        Enter
-                      </kbd>
-                    )}
-                  </button>
-                )
-              })()}
-
-              {/* Deny */}
-              {(() => {
-                const denySimple =
-                  item.verdict !== 'UNREALISTIC_VALUE' && item.verdict !== 'WRONG_LABEL'
-                const denyQueued =
-                  pendingDecisionForItem?.decision === 'deny'
-                // Only allow queueing for simple (no-subdialog) deny verdicts
-                const denyClickable = canAct || (denySimple && acquiringLock && !saving)
-                return (
-                  <button
-                    type="button"
-                    disabled={!denyClickable}
-                    onClick={() => {
-                      if (!sample || saving) return
-                      if (item.verdict === 'UNREALISTIC_VALUE' || item.verdict === 'WRONG_LABEL') {
-                        if (canAct) setShowSubDialog((v) => !v)
-                      } else {
-                        setShowSubDialog(false)
-                        if (canAct) {
-                          void onSubmit(item, sample, 'deny', reviewerNote)
-                        } else if (acquiringLock) {
-                          setPendingDecision({ decision: 'deny', note: reviewerNote, itemId: item.id })
-                        }
-                      }
-                    }}
-                    className="inline-flex items-center gap-2 rounded-lg px-5 py-2 text-[15px] font-semibold transition-[background-color,border-color,color,opacity] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#60a5fa]"
-                    style={{
-                      background: showSubDialog ? '#f87171' : 'rgba(248,113,113,0.12)',
-                      color: showSubDialog ? '#fff' : '#f87171',
-                      border: `1px solid ${showSubDialog ? '#f87171' : 'rgba(248,113,113,0.3)'}`,
-                      opacity: canAct || denyQueued ? 1 : denyClickable ? 0.65 : 0.35,
-                      cursor: denyClickable ? 'pointer' : 'not-allowed',
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!canAct || showSubDialog) return
-                      ;(e.currentTarget as HTMLElement).style.background = 'rgba(248,113,113,0.25)'
-                      ;(e.currentTarget as HTMLElement).style.borderColor = '#f87171'
-                    }}
-                    onMouseLeave={(e) => {
-                      if (showSubDialog) return
-                      ;(e.currentTarget as HTMLElement).style.background = 'rgba(248,113,113,0.12)'
-                      ;(e.currentTarget as HTMLElement).style.borderColor = 'rgba(248,113,113,0.3)'
-                    }}
-                  >
-                    {denyQueued ? (
-                      <LoaderCircle aria-hidden="true" className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <XCircle aria-hidden="true" className="h-3.5 w-3.5" />
-                    )}
-                    Deny
-                    {canAct && (
-                  <kbd
-                    className="ml-1 rounded px-1 py-0.5 text-[11px] font-normal"
-                    style={{
-                      border: '1px solid rgba(248,113,113,0.4)',
-                      opacity: 0.7,
-                    }}
-                  >
-                    Backspace
-                  </kbd>
+                    {decisionDisplay.label}
+                  </span>
+                ) : (
+                  <span className="text-xs uppercase tracking-wider text-[#aeb7c8]">
+                    Not decided
+                  </span>
                 )}
-                  </button>
-                )
-              })()}
-
-              {/* Already-reviewed status */}
-              {item.status === 'completed' && item.decision && (
-                <span
-                  className="ml-auto inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wider"
-                  style={{
-                    color: item.decision === 'accept' ? '#34d399' : '#f87171',
-                  }}
-                >
-                  {item.decision === 'accept' ? (
-                    <Check aria-hidden="true" className="h-3.5 w-3.5" />
-                  ) : (
-                    <XCircle aria-hidden="true" className="h-3.5 w-3.5" />
-                  )}
-                  {item.decision === 'accept' ? 'Accepted' : 'Denied'}
+                <span className="ml-auto text-xs tabular-nums" style={{ color: '#aeb7c8' }}>
+                  {formatDateTime(item.decided_at ?? item.updated_at)}
                 </span>
-              )}
-
-              {acquiringLock && !saving && !pendingDecisionForItem && (
-                <span
-                  className="ml-auto text-xs flex items-center gap-1.5"
-                  style={{ color: '#60a5fa' }}
-                >
-                  <LoaderCircle aria-hidden="true" className="h-3 w-3 animate-spin" />
-                  Acquiring lock…
-                </span>
-              )}
-
-              {saving && (
-                <span className="ml-auto text-xs" style={{ color: '#fbbf24' }}>
-                  Saving…
-                </span>
-              )}
-            </div>
+              </div>
+            ) : (
+                          <div
+                            className="pt-4 flex items-center gap-3 flex-wrap"
+                            style={{ borderTop: '1px solid #343b50' }}
+                          >
+                            <span className="text-xs" style={{ color: '#aeb7c8' }}>
+                              Decision:
+                            </span>
+              
+                            {/* Accept */}
+                            {(() => {
+                              // Allow click while lock is being acquired so the intent can be queued;
+                              // truly disable only when saving (mid-submit) or genuinely unactionable.
+                              const acceptQueued =
+                                pendingDecisionForItem?.decision === 'accept'
+                              const acceptClickable = canAct || (acquiringLock && !saving)
+                              return (
+                                <button
+                                  type="button"
+                                  disabled={!acceptClickable}
+                                  onClick={() => {
+                                    if (!sample || saving) return
+                                    setShowSubDialog(false)
+                                    if (canAct) {
+                                      void onSubmit(item, sample, 'accept', reviewerNote)
+                                    } else if (acquiringLock) {
+                                      setPendingDecision({ decision: 'accept', note: reviewerNote, itemId: item.id })
+                                    }
+                                  }}
+                                  className="inline-flex items-center gap-2 rounded-lg px-5 py-2 text-[15px] font-semibold transition-[background-color,border-color,color,opacity] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#60a5fa]"
+                                  style={{
+                                    background: 'rgba(52,211,153,0.12)',
+                                    color: '#34d399',
+                                    border: '1px solid rgba(52,211,153,0.3)',
+                                    opacity: canAct || acceptQueued ? 1 : acceptClickable ? 0.65 : 0.35,
+                                    cursor: acceptClickable ? 'pointer' : 'not-allowed',
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    if (!canAct) return
+                                    ;(e.currentTarget as HTMLElement).style.background = 'rgba(52,211,153,0.25)'
+                                    ;(e.currentTarget as HTMLElement).style.borderColor = '#34d399'
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    ;(e.currentTarget as HTMLElement).style.background = 'rgba(52,211,153,0.12)'
+                                    ;(e.currentTarget as HTMLElement).style.borderColor = 'rgba(52,211,153,0.3)'
+                                  }}
+                                >
+                                  {acceptQueued ? (
+                                    <LoaderCircle aria-hidden="true" className="h-3.5 w-3.5 animate-spin" />
+                                  ) : (
+                                    <Check aria-hidden="true" className="h-3.5 w-3.5" />
+                                  )}
+                                  Accept
+                                  {canAct && (
+                                    <kbd
+                                      className="ml-1 rounded px-1 py-0.5 text-[11px] font-normal"
+                                      style={{
+                                        border: '1px solid rgba(52,211,153,0.4)',
+                                        opacity: 0.7,
+                                      }}
+                                    >
+                                      Enter
+                                    </kbd>
+                                  )}
+                                </button>
+                              )
+                            })()}
+              
+                            {/* Deny */}
+                            {(() => {
+                              const denySimple =
+                                item.verdict !== 'UNREALISTIC_VALUE' && item.verdict !== 'WRONG_LABEL'
+                              const denyQueued =
+                                pendingDecisionForItem?.decision === 'deny'
+                              // Only allow queueing for simple (no-subdialog) deny verdicts
+                              const denyClickable = canAct || (denySimple && acquiringLock && !saving)
+                              return (
+                                <button
+                                  type="button"
+                                  disabled={!denyClickable}
+                                  onClick={() => {
+                                    if (!sample || saving) return
+                                    if (item.verdict === 'UNREALISTIC_VALUE' || item.verdict === 'WRONG_LABEL') {
+                                      if (canAct) setShowSubDialog((v) => !v)
+                                    } else {
+                                      setShowSubDialog(false)
+                                      if (canAct) {
+                                        void onSubmit(item, sample, 'deny', reviewerNote)
+                                      } else if (acquiringLock) {
+                                        setPendingDecision({ decision: 'deny', note: reviewerNote, itemId: item.id })
+                                      }
+                                    }
+                                  }}
+                                  className="inline-flex items-center gap-2 rounded-lg px-5 py-2 text-[15px] font-semibold transition-[background-color,border-color,color,opacity] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#60a5fa]"
+                                  style={{
+                                    background: showSubDialog ? '#f87171' : 'rgba(248,113,113,0.12)',
+                                    color: showSubDialog ? '#fff' : '#f87171',
+                                    border: `1px solid ${showSubDialog ? '#f87171' : 'rgba(248,113,113,0.3)'}`,
+                                    opacity: canAct || denyQueued ? 1 : denyClickable ? 0.65 : 0.35,
+                                    cursor: denyClickable ? 'pointer' : 'not-allowed',
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    if (!canAct || showSubDialog) return
+                                    ;(e.currentTarget as HTMLElement).style.background = 'rgba(248,113,113,0.25)'
+                                    ;(e.currentTarget as HTMLElement).style.borderColor = '#f87171'
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    if (showSubDialog) return
+                                    ;(e.currentTarget as HTMLElement).style.background = 'rgba(248,113,113,0.12)'
+                                    ;(e.currentTarget as HTMLElement).style.borderColor = 'rgba(248,113,113,0.3)'
+                                  }}
+                                >
+                                  {denyQueued ? (
+                                    <LoaderCircle aria-hidden="true" className="h-3.5 w-3.5 animate-spin" />
+                                  ) : (
+                                    <XCircle aria-hidden="true" className="h-3.5 w-3.5" />
+                                  )}
+                                  Deny
+                                  {canAct && (
+                                <kbd
+                                  className="ml-1 rounded px-1 py-0.5 text-[11px] font-normal"
+                                  style={{
+                                    border: '1px solid rgba(248,113,113,0.4)',
+                                    opacity: 0.7,
+                                  }}
+                                >
+                                  Backspace
+                                </kbd>
+                              )}
+                                </button>
+                              )
+                            })()}
+              
+                            {/* Already-reviewed status */}
+                            {item.status === 'completed' && item.decision && (
+                              <span
+                                className="ml-auto inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wider"
+                                style={{
+                                  color: item.decision === 'accept' ? '#34d399' : '#f87171',
+                                }}
+                              >
+                                {item.decision === 'accept' ? (
+                                  <Check aria-hidden="true" className="h-3.5 w-3.5" />
+                                ) : (
+                                  <XCircle aria-hidden="true" className="h-3.5 w-3.5" />
+                                )}
+                                {item.decision === 'accept' ? 'Accepted' : 'Denied'}
+                              </span>
+                            )}
+              
+                            {acquiringLock && !saving && !pendingDecisionForItem && (
+                              <span
+                                className="ml-auto text-xs flex items-center gap-1.5"
+                                style={{ color: '#60a5fa' }}
+                              >
+                                <LoaderCircle aria-hidden="true" className="h-3 w-3 animate-spin" />
+                                Acquiring lock…
+                              </span>
+                            )}
+              
+                            {saving && (
+                              <span className="ml-auto text-xs" style={{ color: '#fbbf24' }}>
+                                Saving…
+                              </span>
+                            )}
+                          </div>
+            )}
 
             {/* ── Sub-dialog for multi-path deny decisions ── */}
-            {showSubDialog && (
+            {!readOnly && showSubDialog && (
               <div
                 className="mt-4 rounded-lg p-4 text-[15px]"
                 style={{ background: '#252b38', border: '1px solid #343b50' }}
@@ -683,7 +749,7 @@ export function ReviewModal({
             )}
 
             {/* ── Lock status: only warn when we don't have the lock AND aren't in the process of getting it ── */}
-            {!hasLock && !acquiringLock && sample?.locked_by && sample.locked_by !== currentUserId && (
+            {!readOnly && !hasLock && !acquiringLock && sample?.locked_by && sample.locked_by !== currentUserId && (
               <p
                 className="mt-3 flex items-center gap-1.5 text-xs"
                 style={{ color: '#f87171' }}

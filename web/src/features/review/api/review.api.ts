@@ -119,6 +119,10 @@ export type ReviewItemsPageResult = {
   has_more: boolean
 }
 
+export type LabeledReviewItemsPageRequest = ReviewItemsPageRequest
+export type LabeledReviewItemsPageResult = ReviewItemsPageResult
+export type FetchLabeledReviewItemsPageArgs = FetchReviewItemsPageArgs
+
 function buildReviewItemsPageRequest(args: FetchReviewItemsPageArgs): ReviewItemsPageRequest {
   return {
     dataset_id: args.datasetId,
@@ -144,6 +148,26 @@ export async function fetchReviewItemsPage(
   args: FetchReviewItemsPageArgs,
 ): Promise<ReviewItemsPageResult> {
   const { data, error } = await supabase.rpc('list_review_items_page_v2', {
+    p_request: buildReviewItemsPageRequest(args) as Json,
+  })
+  if (error) throw error
+  return parseListReviewItemsPagePayload(data)
+}
+
+export async function countLabeledReviewItemsFiltered(
+  args: FetchLabeledReviewItemsPageArgs,
+): Promise<DatasetReviewItemCounts> {
+  const { data, error } = await supabase.rpc('count_labeled_review_items_filtered', {
+    p_request: buildReviewItemsPageRequest(args) as Json,
+  })
+  if (error) throw error
+  return parseDatasetReviewCounts(data)
+}
+
+export async function fetchLabeledReviewItemsPage(
+  args: FetchLabeledReviewItemsPageArgs,
+): Promise<LabeledReviewItemsPageResult> {
+  const { data, error } = await supabase.rpc('list_labeled_review_items_page', {
     p_request: buildReviewItemsPageRequest(args) as Json,
   })
   if (error) throw error

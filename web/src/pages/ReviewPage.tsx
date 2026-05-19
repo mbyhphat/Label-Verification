@@ -36,6 +36,11 @@ const VERDICT_PILLS: { value: VerdictFilter; label: string }[] = [
   { value: 'UNREALISTIC_VALUE', label: 'Unrealistic' },
 ]
 
+const REVIEW_VIEW_MODES = [
+  { value: 'review', label: 'To review' },
+  { value: 'labeled', label: 'Labeled' },
+] as const
+
 const projectLabelCache = new Map<string, string[]>()
 const projectLabelRequests = new Map<string, Promise<string[]>>()
 
@@ -117,6 +122,8 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
     samplesById,
     activeItem,
     activeSample,
+    activeItemReadOnly,
+    viewMode,
     loadingDatasets,
     loadingItems,
     acquiringLock,
@@ -129,6 +136,7 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
     countsStatus,
     selectDataset,
     selectEntityType,
+    selectViewMode,
     loadNextPage,
     loadPreviousPage,
     refreshCurrentPage,
@@ -190,7 +198,7 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
 
   useEffect(() => {
     submittedItemIdsRef.current = new Set()
-  }, [activeDataset?.id, activeEntityType, debouncedSearchQuery, verdictFilter])
+  }, [activeDataset?.id, activeEntityType, debouncedSearchQuery, verdictFilter, viewMode])
 
   const verdictCounts = useMemo(
     () => ({
@@ -208,8 +216,12 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
   )
 
   const resultCountLabel = pageInfo.filteredTotal === null
-    ? `${filteredItems.length} loaded · Page ${pageInfo.pageIndex}`
-    : `${filteredItems.length} of ${pageInfo.filteredTotal} · Page ${pageInfo.pageIndex}`
+    ? viewMode === 'labeled'
+      ? `${filteredItems.length} labeled loaded · Page ${pageInfo.pageIndex}`
+      : `${filteredItems.length} loaded · Page ${pageInfo.pageIndex}`
+    : viewMode === 'labeled'
+      ? `${filteredItems.length} of ${pageInfo.filteredTotal} labeled · Page ${pageInfo.pageIndex}`
+      : `${filteredItems.length} of ${pageInfo.filteredTotal} · Page ${pageInfo.pageIndex}`
 
   const syncStatusLabel = syncing
     ? 'Refreshing...'
@@ -256,11 +268,14 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
     ) => {
       setModalItemId(item.id)
       await Promise.all([
-        openItem(item, prefetchedBundle, { forceAcquireLock }),
+        openItem(item, prefetchedBundle, {
+          forceAcquireLock,
+          readOnly: viewMode === 'labeled',
+        }),
         activeProjectId ? loadProjectLabels(activeProjectId) : Promise.resolve(),
       ])
     },
-    [activeProjectId, loadProjectLabels, openItem],
+    [activeProjectId, loadProjectLabels, openItem, viewMode],
   )
 
   const handleOpenItem = useCallback(
@@ -274,10 +289,10 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
     if (decisionInFlightItemIdRef.current !== null) return
 
     setModalItemId(null)
-    if (activeSample) {
+    if (activeSample && !activeItemReadOnly) {
       void releaseLock(activeSample.id)
     }
-  }, [activeSample, releaseLock])
+  }, [activeItemReadOnly, activeSample, releaseLock])
 
   const handleModalPrev = useCallback(() => {
     if (modalItemIndex > 0 && !acquiringLock && submittingItemId === null) {
@@ -314,19 +329,27 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
 
   const handleNextPage = useCallback(() => {
     setModalItemId(null)
-    if (activeSample) void releaseLock(activeSample.id)
+    if (activeSample && !activeItemReadOnly) void releaseLock(activeSample.id)
     void loadNextPage()
-  }, [activeSample, loadNextPage, releaseLock])
+  }, [activeItemReadOnly, activeSample, loadNextPage, releaseLock])
 
   const handlePreviousPage = useCallback(() => {
     setModalItemId(null)
-    if (activeSample) void releaseLock(activeSample.id)
+    if (activeSample && !activeItemReadOnly) void releaseLock(activeSample.id)
     void loadPreviousPage()
-  }, [activeSample, loadPreviousPage, releaseLock])
+  }, [activeItemReadOnly, activeSample, loadPreviousPage, releaseLock])
 
   const handleRefreshPage = useCallback(() => {
     void refreshCurrentPage()
   }, [refreshCurrentPage])
+
+  const handleSelectViewMode = useCallback(
+    (mode: (typeof REVIEW_VIEW_MODES)[number]['value']) => {
+      setModalItemId(null)
+      selectViewMode(mode)
+    },
+    [selectViewMode],
+  )
 
   const handleModalSubmit = useCallback(
     async (
@@ -335,7 +358,7 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
       decision: ReviewDecision,
       reviewerNote: string,
     ) => {
-      if (decisionInFlightItemIdRef.current !== null) {
+      if (decisionInFlightItemIdRef.current !== null || viewMode === 'labeled') {
         return
       }
 
@@ -424,7 +447,7 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
         }
       }
     },
-    [loadNextPage, navigateToItem, pageInfo.hasMore, projectLabelOptions, releaseLock, submitDecision],
+    [loadNextPage, navigateToItem, pageInfo.hasMore, projectLabelOptions, releaseLock, submitDecision, viewMode],
   )
 
   const handleModalSaveSampleMask = useCallback(
@@ -514,22 +537,49 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
                     : 'No dataset selected'}
                 </h2>
               </div>
-              <Select
-                value={activeEntityType ?? ALL_ENTITY_TYPES}
-                onValueChange={(v) => selectEntityType(v === ALL_ENTITY_TYPES ? null : v)}
-              >
-                <SelectTrigger size="sm" className="w-56 shrink-0 text-sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={ALL_ENTITY_TYPES}>All classes</SelectItem>
-                  {entityTypes.map((et) => (
-                    <SelectItem key={et} value={et}>
-                      {et}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="flex shrink-0 items-center gap-2">
+                <div
+                  className="inline-flex overflow-hidden rounded-md"
+                  style={{ border: '1px solid #343b50' }}
+                >
+                  {REVIEW_VIEW_MODES.map((mode, idx) => {
+                    const isActive = viewMode === mode.value
+                    return (
+                      <button
+                        key={mode.value}
+                        type="button"
+                        aria-pressed={isActive}
+                        onClick={() => handleSelectViewMode(mode.value)}
+                        className="cursor-pointer select-none px-3.5 py-2 text-sm font-medium transition-[background-color,color] focus-visible:z-10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#60a5fa]"
+                        style={{
+                          borderLeft: idx > 0 ? '1px solid #343b50' : undefined,
+                          background: isActive ? 'rgba(96,165,250,0.14)' : '#111722',
+                          color: isActive ? '#60a5fa' : '#aeb7c8',
+                        }}
+                      >
+                        {mode.label}
+                      </button>
+                    )
+                  })}
+                </div>
+
+                <Select
+                  value={activeEntityType ?? ALL_ENTITY_TYPES}
+                  onValueChange={(v) => selectEntityType(v === ALL_ENTITY_TYPES ? null : v)}
+                >
+                  <SelectTrigger size="sm" className="w-56 shrink-0 text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ALL_ENTITY_TYPES}>All classes</SelectItem>
+                    {entityTypes.map((et) => (
+                      <SelectItem key={et} value={et}>
+                        {et}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
             {/* Verdict filter pills + search + result count */}
@@ -613,7 +663,7 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
                   size="sm"
                   disabled={loadingItems || syncing || saving || acquiringLock || modalItemId !== null}
                   onClick={handleRefreshPage}
-                  aria-label="Refresh current review items page"
+                  aria-label={viewMode === 'labeled' ? 'Refresh current labeled items page' : 'Refresh current review items page'}
                 >
                   <RefreshCw aria-hidden="true" className="h-4 w-4" />
                   Refresh
@@ -624,7 +674,7 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
                   size="sm"
                   disabled={loadingItems || pageInfo.pageIndex <= 1}
                   onClick={handlePreviousPage}
-                  aria-label="Previous review items page"
+                  aria-label={viewMode === 'labeled' ? 'Previous labeled items page' : 'Previous review items page'}
                 >
                   <ChevronLeft aria-hidden="true" className="h-4 w-4" />
                   Previous
@@ -635,7 +685,7 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
                   size="sm"
                   disabled={loadingItems || !pageInfo.hasMore}
                   onClick={handleNextPage}
-                  aria-label="Next review items page"
+                  aria-label={viewMode === 'labeled' ? 'Next labeled items page' : 'Next review items page'}
                 >
                   Next
                   <ChevronRight aria-hidden="true" className="h-4 w-4" />
@@ -664,11 +714,12 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
           {loadingItems ? (
             <div className="flex-1 flex items-center justify-center">
               <p className="text-base" style={{ color: '#aeb7c8' }}>
-                Loading review items…
+                {viewMode === 'labeled' ? 'Loading labeled items…' : 'Loading review items…'}
               </p>
             </div>
           ) : (
             <ReviewTable
+              mode={viewMode}
               items={filteredItems}
               samplesById={samplesById}
               activeItemId={activeItem?.id ?? null}
@@ -690,6 +741,7 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
           acquiringLock={acquiringLock}
           currentUserId={session.user.id}
           labelOptions={labelOptions}
+          readOnly={activeItemReadOnly}
           onPrev={handleModalPrev}
           onNext={handleModalNext}
           onClose={handleCloseModal}
