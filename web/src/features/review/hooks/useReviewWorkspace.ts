@@ -22,10 +22,13 @@ import {
 import type { DatasetReviewItemCounts } from '../api/review.api'
 import { listDatasets } from '../api/dataset.api'
 import { buildDecisionPreview } from '../utils/review.service'
-import { useReviewRealtime } from './useReviewRealtime'
 
 const LAST_DATASET_KEY = 'pii-last-dataset-id'
 const REVIEW_ITEMS_PAGE_SIZE = 250
+const REVIEW_PAGE_POLL_INTERVAL_MS = 60_000
+const REVIEW_COUNTS_POLL_INTERVAL_MS = 120_000
+
+export type CountsStatus = 'idle' | 'loading' | 'ready' | 'error'
 
 function getLastDatasetId(): string | null {
   return localStorage.getItem(LAST_DATASET_KEY)
@@ -59,12 +62,13 @@ export type ReviewPageInfo = {
   nextCursor: Json | null
   hasMore: boolean
   previousCursors: Array<Json | null>
-  filteredTotal: number
+  filteredTotal: number | null
 }
 
 export type ReviewWorkspaceFilters = {
   verdict?: ReviewItem['verdict'] | null
   search?: string | null
+  pagePollingPaused?: boolean
 }
 
 type OpenItemOptions = {
@@ -75,6 +79,9 @@ type LoadItemsOptions = {
   cursor?: Json | null
   pageIndex?: number
   previousCursors?: Array<Json | null>
+  showLoading?: boolean
+  clearActive?: boolean
+  showNotice?: boolean
 }
 
 export type ReviewWorkspaceState = {
@@ -93,10 +100,15 @@ export type ReviewWorkspaceState = {
   notice: string
   stats: ReviewStats
   pageInfo: ReviewPageInfo
+  syncing: boolean
+  lastSyncedAt: string | null
+  countsStatus: CountsStatus
   selectDataset: (dataset: Dataset) => Promise<void>
   selectEntityType: (entityType: string | null) => void
   loadNextPage: () => Promise<ReviewItem[]>
   loadPreviousPage: () => Promise<ReviewItem[]>
+  refreshCurrentPage: () => Promise<ReviewItem[]>
+  refreshCounts: () => Promise<void>
   openItem: (
     item: ReviewItem,
     prefetchedBundle?: ReviewBundle,
@@ -140,7 +152,7 @@ function createInitialPageInfo(): ReviewPageInfo {
     nextCursor: null,
     hasMore: false,
     previousCursors: [],
-    filteredTotal: 0,
+    filteredTotal: null,
   }
 }
 
@@ -161,6 +173,7 @@ export function useReviewWorkspace(
   const [activeDataset, setActiveDataset] = useState<Dataset | null>(null)
   const [allItems, setAllItems] = useState<ReviewItem[]>([])
   const [activeEntityType, setActiveEntityType] = useState<string | null>(null)
+  const [availableEntityTypes, setAvailableEntityTypes] = useState<string[]>([])
   const [reviewCounts, setReviewCounts] = useState<DatasetReviewItemCounts>(() => createEmptyCounts())
   const [pageInfo, setPageInfo] = useState<ReviewPageInfo>(() => createInitialPageInfo())
   const [samplesById, setSamplesById] = useState<Map<string, ReviewSample>>(() => new Map())
@@ -171,14 +184,24 @@ export function useReviewWorkspace(
   const [acquiringLock, setAcquiringLock] = useState(false)
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState('')
+  const [syncing, setSyncing] = useState(false)
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null)
+  const [countsStatus, setCountsStatus] = useState<CountsStatus>('idle')
   const activeDatasetIdRef = useRef<string | null>(null)
-  const currentPageItemIdsRef = useRef<Set<string>>(new Set())
   const loadRequestIdRef = useRef(0)
+  const countsRefreshInFlightRef = useRef(false)
+  const pageRefreshInFlightRef = useRef(false)
+  const allItemsRef = useRef<ReviewItem[]>([])
+  const loadingItemsRef = useRef(false)
+  const savingRef = useRef(false)
+  const acquiringLockRef = useRef(false)
+  const pagePollingPausedRef = useRef(false)
 
   const verdictFilter = filters.verdict ?? null
   const searchFilter = filters.search?.trim() || null
+  const pagePollingPaused = filters.pagePollingPaused === true
 
-  const entityTypes = reviewCounts.entity_types
+  const entityTypes = availableEntityTypes
   const items = allItems
 
   const stats = useMemo(
@@ -205,12 +228,31 @@ export function useReviewWorkspace(
   }, [activeDataset?.id])
 
   useEffect(() => {
-    currentPageItemIdsRef.current = new Set(allItems.map((item) => item.id))
+    allItemsRef.current = allItems
   }, [allItems])
+
+  useEffect(() => {
+    loadingItemsRef.current = loadingItems
+  }, [loadingItems])
+
+  useEffect(() => {
+    savingRef.current = saving
+  }, [saving])
+
+  useEffect(() => {
+    acquiringLockRef.current = acquiringLock
+  }, [acquiringLock])
+
+  useEffect(() => {
+    pagePollingPausedRef.current = pagePollingPaused
+  }, [pagePollingPaused])
 
   const refreshCounts = useCallback(async () => {
     const datasetId = activeDatasetIdRef.current
-    if (!datasetId) return
+    if (!datasetId || countsRefreshInFlightRef.current) return
+
+    countsRefreshInFlightRef.current = true
+    setCountsStatus('loading')
 
     try {
       const nextCounts = await countReviewItemsFiltered({
@@ -223,35 +265,17 @@ export function useReviewWorkspace(
 
       if (activeDatasetIdRef.current !== datasetId) return
       setReviewCounts(nextCounts)
+      setAvailableEntityTypes(nextCounts.entity_types)
       setPageInfo((prev) => ({ ...prev, filteredTotal: nextCounts.filtered_total }))
+      setCountsStatus('ready')
     } catch {
-      // Realtime count refresh is best effort; row-level RPCs still enforce correctness.
+      if (activeDatasetIdRef.current === datasetId) {
+        setCountsStatus('error')
+      }
+    } finally {
+      countsRefreshInFlightRef.current = false
     }
   }, [activeEntityType, searchFilter, verdictFilter])
-
-  // ── Realtime handlers ──────────────────────────────────────────────
-
-  const handleSampleChange = useCallback((sample: ReviewSample) => {
-    setSamplesById((prev) => new Map(prev).set(sample.id, sample))
-    setActiveSample((prev) => (prev?.id === sample.id ? sample : prev))
-  }, [])
-
-  const handleItemChange = useCallback(
-    (item: ReviewItem) => {
-      if (currentPageItemIdsRef.current.has(item.id)) {
-        setAllItems((prev) => patchReviewItem(prev, item))
-        setActiveItem((prev) => (prev?.id === item.id ? item : prev))
-      }
-      void refreshCounts()
-    },
-    [refreshCounts],
-  )
-
-  useReviewRealtime({
-    datasetId: activeDataset?.id ?? null,
-    onSampleChange: handleSampleChange,
-    onItemChange: handleItemChange,
-  })
 
   // ── Internal helpers ───────────────────────────────────────────────
 
@@ -262,62 +286,122 @@ export function useReviewWorkspace(
       const cursor = options.cursor ?? null
       const pageIndex = options.pageIndex ?? 1
       const previousCursors = options.previousCursors ?? []
+      const showLoading = options.showLoading ?? true
+      const clearActive = options.clearActive ?? true
+      const showNotice = options.showNotice ?? showLoading
 
-      setLoadingItems(true)
-      setNotice('Loading review items...')
+      if (showLoading) {
+        setLoadingItems(true)
+        setNotice('Loading review items...')
+      } else if (showNotice) {
+        setNotice('Refreshing...')
+      }
 
       try {
-        const [nextCounts, nextPage] = await Promise.all([
-          countReviewItemsFiltered({
-            datasetId: dataset.id,
-            limit: REVIEW_ITEMS_PAGE_SIZE,
-            entityType: activeEntityType,
-            verdict: verdictFilter,
-            search: searchFilter,
-          }),
-          fetchReviewItemsPage({
-            datasetId: dataset.id,
-            limit: REVIEW_ITEMS_PAGE_SIZE,
-            after: cursor,
-            entityType: activeEntityType,
-            verdict: verdictFilter,
-            search: searchFilter,
-          }),
-        ])
+        const nextPage = await fetchReviewItemsPage({
+          datasetId: dataset.id,
+          limit: REVIEW_ITEMS_PAGE_SIZE,
+          after: cursor,
+          entityType: activeEntityType,
+          verdict: verdictFilter,
+          search: searchFilter,
+        })
 
         if (loadRequestIdRef.current !== requestId || activeDatasetIdRef.current !== dataset.id) {
           return []
         }
 
-        setReviewCounts(nextCounts)
         setAllItems(nextPage.items)
-        setPageInfo({
+        setPageInfo((prev) => ({
           pageIndex,
           pageSize: REVIEW_ITEMS_PAGE_SIZE,
           currentCursor: cursor,
           nextCursor: nextPage.next_after,
           hasMore: nextPage.has_more,
           previousCursors,
-          filteredTotal: nextCounts.filtered_total,
-        })
-        setSamplesById(new Map())
-        setActiveItem(null)
-        setActiveSample(null)
-        setNotice('')
+          filteredTotal: showLoading ? null : prev.filteredTotal,
+        }))
+        if (clearActive) {
+          setSamplesById(new Map())
+          setActiveItem(null)
+          setActiveSample(null)
+        }
+        setLastSyncedAt(new Date().toISOString())
+        if (showNotice) {
+          setNotice(showLoading ? '' : 'Updated just now.')
+        }
+        void refreshCounts()
         return nextPage.items
       } catch (err) {
-        if (loadRequestIdRef.current === requestId) {
+        if (loadRequestIdRef.current === requestId && showNotice) {
           setNotice(formatSupabaseError(err))
         }
         return []
       } finally {
-        if (loadRequestIdRef.current === requestId) {
+        if (loadRequestIdRef.current === requestId && showLoading) {
           setLoadingItems(false)
         }
       }
     },
-    [activeEntityType, searchFilter, verdictFilter],
+    [activeEntityType, refreshCounts, searchFilter, verdictFilter],
   )
+
+  const refreshCurrentPageInternal = useCallback(
+    async (showNotice: boolean) => {
+      if (!activeDataset) return []
+      if (pageRefreshInFlightRef.current) return allItemsRef.current
+
+      pageRefreshInFlightRef.current = true
+      setSyncing(true)
+
+      try {
+        const rows = await loadItems(activeDataset, {
+          cursor: pageInfo.currentCursor,
+          pageIndex: pageInfo.pageIndex,
+          previousCursors: pageInfo.previousCursors,
+          showLoading: false,
+          clearActive: false,
+          showNotice,
+        })
+
+        if (rows.length === 0 && pageInfo.pageIndex > 1) {
+          const nextPreviousCursors = pageInfo.previousCursors.slice(0, -1)
+          const previousCursor = pageInfo.previousCursors[pageInfo.previousCursors.length - 1] ?? null
+
+          return loadItems(activeDataset, {
+            cursor: previousCursor,
+            pageIndex: Math.max(pageInfo.pageIndex - 1, 1),
+            previousCursors: nextPreviousCursors,
+            showLoading: false,
+            clearActive: false,
+            showNotice,
+          })
+        }
+
+        return rows
+      } finally {
+        pageRefreshInFlightRef.current = false
+        setSyncing(false)
+      }
+    },
+    [activeDataset, loadItems, pageInfo],
+  )
+
+  const refreshCurrentPage = useCallback(
+    () => refreshCurrentPageInternal(true),
+    [refreshCurrentPageInternal],
+  )
+
+  const canPollPage = useCallback(() => {
+    return (
+      activeDatasetIdRef.current !== null &&
+      document.visibilityState === 'visible' &&
+      !pagePollingPausedRef.current &&
+      !loadingItemsRef.current &&
+      !savingRef.current &&
+      !acquiringLockRef.current
+    )
+  }, [])
 
   const releaseActive = useCallback(async () => {
     if (!activeSample) return
@@ -350,8 +434,11 @@ export function useReviewWorkspace(
           activeDatasetIdRef.current = null
           setActiveDataset(null)
           setAllItems([])
+          setAvailableEntityTypes([])
           setReviewCounts(createEmptyCounts())
           setPageInfo(createInitialPageInfo())
+          setCountsStatus('idle')
+          setLastSyncedAt(null)
           return
         }
 
@@ -382,6 +469,42 @@ export function useReviewWorkspace(
 
     return () => window.clearTimeout(timer)
   }, [activeDataset, loadItems])
+
+  useEffect(() => {
+    if (!activeDataset) return undefined
+
+    const timer = window.setInterval(() => {
+      if (canPollPage()) void refreshCurrentPageInternal(false)
+    }, REVIEW_PAGE_POLL_INTERVAL_MS)
+
+    return () => window.clearInterval(timer)
+  }, [activeDataset, canPollPage, refreshCurrentPageInternal])
+
+  useEffect(() => {
+    if (!activeDataset) return undefined
+
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void refreshCounts()
+    }, REVIEW_COUNTS_POLL_INTERVAL_MS)
+
+    return () => window.clearInterval(timer)
+  }, [activeDataset, refreshCounts])
+
+  useEffect(() => {
+    function refreshWhenVisible() {
+      if (document.visibilityState !== 'visible') return
+      void refreshCounts()
+      if (canPollPage()) void refreshCurrentPageInternal(false)
+    }
+
+    window.addEventListener('focus', refreshWhenVisible)
+    document.addEventListener('visibilitychange', refreshWhenVisible)
+
+    return () => {
+      window.removeEventListener('focus', refreshWhenVisible)
+      document.removeEventListener('visibilitychange', refreshWhenVisible)
+    }
+  }, [canPollPage, refreshCounts, refreshCurrentPageInternal])
 
   // ── Lock refresh: renew every 30 s while held ──────────────────────
 
@@ -416,10 +539,14 @@ export function useReviewWorkspace(
       setActiveDataset(dataset)
       setActiveEntityType(null)
       setAllItems([])
+      setAvailableEntityTypes([])
+      setReviewCounts(createEmptyCounts())
       setSamplesById(new Map())
       setActiveItem(null)
       setActiveSample(null)
       setPageInfo(createInitialPageInfo())
+      setCountsStatus('idle')
+      setLastSyncedAt(null)
     },
     [activeSample?.locked_by, session.user.id, releaseActive],
   )
@@ -430,11 +557,15 @@ export function useReviewWorkspace(
         void releaseActive()
       }
       setActiveEntityType(entityType)
+      setAllItems([])
+      setReviewCounts({ ...createEmptyCounts(), entity_types: availableEntityTypes })
       setActiveItem(null)
       setActiveSample(null)
       setPageInfo(createInitialPageInfo())
+      setCountsStatus('idle')
+      setLastSyncedAt(null)
     },
-    [activeSample?.locked_by, session.user.id, releaseActive],
+    [activeSample?.locked_by, availableEntityTypes, session.user.id, releaseActive],
   )
 
   const loadNextPage = useCallback(async () => {
@@ -604,10 +735,15 @@ export function useReviewWorkspace(
     notice,
     stats,
     pageInfo,
+    syncing,
+    lastSyncedAt,
+    countsStatus,
     selectDataset,
     selectEntityType,
     loadNextPage,
     loadPreviousPage,
+    refreshCurrentPage,
+    refreshCounts,
     openItem,
     submitDecision,
     saveSampleMask,

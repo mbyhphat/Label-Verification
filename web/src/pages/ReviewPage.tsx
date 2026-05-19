@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
-import { AlertTriangle, Check, ChevronLeft, ChevronRight, Search, XCircle } from 'lucide-react'
+import { AlertTriangle, Check, ChevronLeft, ChevronRight, RefreshCw, Search, XCircle } from 'lucide-react'
 import { AppHeader } from '@/components/AppHeader'
 import { Button } from '@/components/ui/button'
 import { getProjectPiiConfig } from '@/features/admin/api/pii-config.api'
@@ -106,6 +106,7 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
   const [searchQuery, setSearchQuery] = useState('')
   const debouncedSearchQuery = useDebouncedValue(searchQuery, 350)
   const activeVerdictFilter = verdictFilter === 'ALL' ? null : verdictFilter
+  const [modalItemId, setModalItemId] = useState<string | null>(null)
 
   const {
     datasets,
@@ -123,10 +124,14 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
     notice,
     stats,
     pageInfo,
+    syncing,
+    lastSyncedAt,
+    countsStatus,
     selectDataset,
     selectEntityType,
     loadNextPage,
     loadPreviousPage,
+    refreshCurrentPage,
     openItem,
     submitDecision,
     saveSampleMask,
@@ -134,9 +139,8 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
   } = useReviewWorkspace(session, {
     verdict: activeVerdictFilter,
     search: debouncedSearchQuery,
+    pagePollingPaused: modalItemId !== null,
   })
-
-  const [modalItemId, setModalItemId] = useState<string | null>(null)
   const filteredItemsRef = useRef<ReviewItem[]>([])
   const submittedItemIdsRef = useRef<Set<string>>(new Set())
   const decisionInFlightItemIdRef = useRef<string | null>(null)
@@ -202,6 +206,18 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
     () => (modalItemId ? filteredItems.findIndex((i) => i.id === modalItemId) : -1),
     [modalItemId, filteredItems],
   )
+
+  const resultCountLabel = pageInfo.filteredTotal === null
+    ? `${filteredItems.length} loaded · Page ${pageInfo.pageIndex}`
+    : `${filteredItems.length} of ${pageInfo.filteredTotal} · Page ${pageInfo.pageIndex}`
+
+  const syncStatusLabel = syncing
+    ? 'Refreshing...'
+    : countsStatus === 'error'
+      ? 'Count unavailable'
+      : lastSyncedAt
+        ? 'Updated just now'
+        : ''
 
   const projectLabelOptions = useMemo(() => {
     return configuredEntityTypes && configuredEntityTypes.projectId === activeProjectId
@@ -307,6 +323,10 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
     if (activeSample) void releaseLock(activeSample.id)
     void loadPreviousPage()
   }, [activeSample, loadPreviousPage, releaseLock])
+
+  const handleRefreshPage = useCallback(() => {
+    void refreshCurrentPage()
+  }, [refreshCurrentPage])
 
   const handleModalSubmit = useCallback(
     async (
@@ -420,7 +440,7 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
   )
 
   const headerStats =
-    !loadingItems && items.length > 0 ? (
+    !loadingItems && items.length > 0 && pageInfo.filteredTotal !== null ? (
       <div
         className="hidden items-center gap-2.5 overflow-hidden text-[13px] sm:flex"
         style={{ fontVariantNumeric: 'tabular-nums' }}
@@ -580,8 +600,24 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
               {/* Pagination controls */}
               <div className="ml-auto flex items-center gap-2">
                 <span className="text-sm tabular-nums" style={{ color: '#aeb7c8' }}>
-                  {filteredItems.length} of {pageInfo.filteredTotal} · Page {pageInfo.pageIndex}
+                  {resultCountLabel}
                 </span>
+                {syncStatusLabel ? (
+                  <span className="text-xs" style={{ color: syncing ? '#fbbf24' : '#7dd3fc' }}>
+                    {syncStatusLabel}
+                  </span>
+                ) : null}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={loadingItems || syncing || saving || acquiringLock || modalItemId !== null}
+                  onClick={handleRefreshPage}
+                  aria-label="Refresh current review items page"
+                >
+                  <RefreshCw aria-hidden="true" className="h-4 w-4" />
+                  Refresh
+                </Button>
                 <Button
                   type="button"
                   variant="outline"
