@@ -1,4 +1,12 @@
-import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  type ChangeEvent,
+  type CompositionEvent,
+  type KeyboardEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { MousePointer2, Pencil, Save, Scissors, Tag, Trash2, X } from 'lucide-react'
 import type { PrivacyMaskEntry, ReviewSample } from '@/types/domain'
 import { Badge } from '@/components/ui/badge'
@@ -248,8 +256,9 @@ function remapRangeAfterTextEdit(range: TextRange, edit: TextEdit): TextRange | 
   const delta = insertedLength - removedLength
 
   if (removedLength === 0) {
-    if (range.end < edit.start) return range
-    if (range.start > edit.start) {
+    // Ranges are half-open [start, end): typing at either edge is outside the span.
+    if (range.end <= edit.start) return range
+    if (range.start >= edit.start) {
       return { start: range.start + delta, end: range.end + delta }
     }
 
@@ -341,6 +350,10 @@ export function SampleMaskEditor({
 }: SampleMaskEditorProps) {
   const sourceRef = useRef<HTMLDivElement>(null)
   const sourceEditorRef = useRef<HTMLDivElement>(null)
+  const isComposingTextRef = useRef(false)
+  const compositionStartTextRef = useRef<string | null>(null)
+  const compositionStartMaskRef = useRef<PrivacyMaskEntry[] | null>(null)
+  const lastCommittedCompositionTextRef = useRef<string | null>(null)
   const [draftSourceText, setDraftSourceText] = useState(sample.current_source_text)
   const sourceText = draftSourceText
   const [draftMask, setDraftMask] = useState<PrivacyMaskEntry[]>(() =>
@@ -423,6 +436,52 @@ export function SampleMaskEditor({
     setDraftSourceText(nextSourceText)
     setSelectedIndex(null)
     setSelectionRange(null)
+  }
+
+  function updateSourceTextWithoutRemapping(nextSourceText: string) {
+    setDraftSourceText(nextSourceText)
+    setSelectedIndex(null)
+    setSelectionRange(null)
+  }
+
+  function handleSourceTextCompositionStart() {
+    isComposingTextRef.current = true
+    compositionStartTextRef.current = sourceText
+    compositionStartMaskRef.current = draftMask
+    lastCommittedCompositionTextRef.current = null
+  }
+
+  function handleSourceTextCompositionEnd(event: CompositionEvent<HTMLTextAreaElement>) {
+    isComposingTextRef.current = false
+
+    const nextSourceText = event.currentTarget.value
+    const baseText = compositionStartTextRef.current ?? sourceText
+    const baseMask = compositionStartMaskRef.current ?? draftMask
+
+    setDraftMask(remapMaskAfterSourceTextChange(baseText, nextSourceText, baseMask))
+    setDraftSourceText(nextSourceText)
+    setSelectedIndex(null)
+    setSelectionRange(null)
+
+    compositionStartTextRef.current = null
+    compositionStartMaskRef.current = null
+    lastCommittedCompositionTextRef.current = nextSourceText
+  }
+
+  function handleSourceTextChange(event: ChangeEvent<HTMLTextAreaElement>) {
+    const nextSourceText = event.currentTarget.value
+
+    if (lastCommittedCompositionTextRef.current === nextSourceText) {
+      lastCommittedCompositionTextRef.current = null
+      return
+    }
+
+    if (isComposingTextRef.current) {
+      updateSourceTextWithoutRemapping(nextSourceText)
+      return
+    }
+
+    updateSourceText(nextSourceText)
   }
 
   function toggleTextEditor() {
@@ -573,7 +632,9 @@ export function SampleMaskEditor({
               disabled={!canEdit}
               spellCheck={false}
               className="max-h-80 min-h-64 resize-y border-border/70 bg-background/80 font-mono text-sm leading-7 text-foreground"
-              onChange={(event) => updateSourceText(event.currentTarget.value)}
+              onChange={handleSourceTextChange}
+              onCompositionStart={handleSourceTextCompositionStart}
+              onCompositionEnd={handleSourceTextCompositionEnd}
             />
           ) : (
             <div
