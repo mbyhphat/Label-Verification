@@ -294,7 +294,7 @@ Unique index:
 Common UI usage:
 
 - filter pending/completed items,
-- search by value/reason/suggested label,
+- search by value/reason/suggested label/source context,
 - show audit verdict and context,
 - save the human decision.
 

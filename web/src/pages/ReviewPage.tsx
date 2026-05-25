@@ -634,7 +634,7 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
                   autoComplete="off"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search value, reason, label…"
+                  placeholder="Search value, reason, label, context…"
                   className="rounded-lg py-2 pl-10 pr-3.5 text-sm transition-[border-color,background-color,color] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#60a5fa]"
                   style={{
                     background: '#111722',
