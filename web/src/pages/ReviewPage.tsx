@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
-import { AlertTriangle, Check, ChevronLeft, ChevronRight, RefreshCw, Search, XCircle } from 'lucide-react'
+import { AlertTriangle, Check, ChevronLeft, ChevronRight, Hash, RefreshCw, Search, XCircle } from 'lucide-react'
 import { AppHeader } from '@/components/AppHeader'
 import { Button } from '@/components/ui/button'
 import { getProjectPiiConfig } from '@/features/admin/api/pii-config.api'
@@ -109,7 +109,9 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
   // ── Local UI state ─────────────────────────────────────────────
   const [verdictFilter, setVerdictFilter] = useState<VerdictFilter>('ALL')
   const [searchQuery, setSearchQuery] = useState('')
+  const [sampleIdSearch, setSampleIdSearch] = useState('')
   const debouncedSearchQuery = useDebouncedValue(searchQuery, 350)
+  const debouncedSampleIdSearch = useDebouncedValue(sampleIdSearch, 350)
   const activeVerdictFilter = verdictFilter === 'ALL' ? null : verdictFilter
   const [modalItemId, setModalItemId] = useState<string | null>(null)
 
@@ -147,6 +149,7 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
   } = useReviewWorkspace(session, {
     verdict: activeVerdictFilter,
     search: debouncedSearchQuery,
+    sampleIdSearch: debouncedSampleIdSearch,
     pagePollingPaused: modalItemId !== null,
   })
   const filteredItemsRef = useRef<ReviewItem[]>([])
@@ -198,7 +201,7 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
 
   useEffect(() => {
     submittedItemIdsRef.current = new Set()
-  }, [activeDataset?.id, activeEntityType, debouncedSearchQuery, verdictFilter, viewMode])
+  }, [activeDataset?.id, activeEntityType, debouncedSampleIdSearch, debouncedSearchQuery, verdictFilter, viewMode])
 
   const verdictCounts = useMemo(
     () => ({
@@ -641,6 +644,32 @@ export function ReviewPage({ session, onSignOut, canShowAdmin }: ReviewPageProps
                     border: '1px solid #343b50',
                     color: '#edf0f7',
                     width: 'min(320px, 100%)',
+                  }}
+                  onFocus={(e) => (e.currentTarget.style.borderColor = '#60a5fa')}
+                  onBlur={(e) => (e.currentTarget.style.borderColor = '#343b50')}
+                />
+              </div>
+
+              {/* Sample ID search */}
+              <div className="relative">
+                <Hash
+                  aria-hidden="true"
+                  className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#aeb7c8]"
+                />
+                <input
+                  type="search"
+                  name="sample-id-search"
+                  aria-label="Search by sample IDs"
+                  autoComplete="off"
+                  value={sampleIdSearch}
+                  onChange={(e) => setSampleIdSearch(e.target.value)}
+                  placeholder="Sample IDs, comma or space separated"
+                  className="rounded-lg py-2 pl-10 pr-3.5 text-sm transition-[border-color,background-color,color] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#60a5fa]"
+                  style={{
+                    background: '#111722',
+                    border: '1px solid #343b50',
+                    color: '#edf0f7',
+                    width: 'min(300px, 100%)',
                   }}
                   onFocus={(e) => (e.currentTarget.style.borderColor = '#60a5fa')}
                   onBlur={(e) => (e.currentTarget.style.borderColor = '#343b50')}

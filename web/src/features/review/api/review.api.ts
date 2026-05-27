@@ -28,7 +28,8 @@ function isJsonRecord(value: unknown): value is JsonRecord {
 }
 
 const SAMPLE_EXPORT_PAGE_SIZE = 1000
-
+const SAMPLE_ID_SEARCH_CHUNK_SIZE = 75
+const SAMPLE_ID_SEARCH_LIMIT = 500
 
 function isJsonRecordWithId(value: unknown): value is JsonRecord & { id: string } {
   return isJsonRecord(value) && typeof value.id === 'string'
@@ -113,6 +114,13 @@ export type FetchReviewItemsPageArgs = {
   search?: string | null
 }
 
+export type FetchReviewItemsBySampleIdsArgs = {
+  datasetId: string
+  sampleIds: string[]
+  entityType?: string | null
+  labeledOnly?: boolean
+}
+
 export type ReviewItemsPageResult = {
   items: ReviewItem[]
   next_after: Json | null
@@ -122,6 +130,34 @@ export type ReviewItemsPageResult = {
 export type LabeledReviewItemsPageRequest = ReviewItemsPageRequest
 export type LabeledReviewItemsPageResult = ReviewItemsPageResult
 export type FetchLabeledReviewItemsPageArgs = FetchReviewItemsPageArgs
+
+export function parseSampleIdSearch(
+  input: string | null | undefined,
+  sourceKey: string,
+): string[] {
+  const prefix = sourceKey.trim()
+  const seen = new Set<string>()
+  const sampleIds: string[] = []
+
+  const leadingDecorators = new Set(['[', '"', "'", '`', '('])
+  const trailingDecorators = new Set([']', '"', "'", '`', ')', ','])
+
+  for (const rawToken of (input ?? '').split(/[\s,;]+/)) {
+    let token = rawToken.trim()
+    while (token && leadingDecorators.has(token[0])) token = token.slice(1)
+    while (token && trailingDecorators.has(token[token.length - 1])) token = token.slice(0, -1)
+    if (!token) continue
+
+    const sampleId = token.includes('#') || !prefix ? token : `${prefix}#${token}`
+    if (seen.has(sampleId)) continue
+
+    seen.add(sampleId)
+    sampleIds.push(sampleId)
+    if (sampleIds.length >= SAMPLE_ID_SEARCH_LIMIT) break
+  }
+
+  return sampleIds
+}
 
 function buildReviewItemsPageRequest(args: FetchReviewItemsPageArgs): ReviewItemsPageRequest {
   return {
@@ -172,6 +208,73 @@ export async function fetchLabeledReviewItemsPage(
   })
   if (error) throw error
   return parseListReviewItemsPagePayload(data)
+}
+
+function compareSampleIdSearchItems(a: ReviewItem, b: ReviewItem): number {
+  const verdictDiff = (a.verdict === 'CORRECT' ? 0 : 1) - (b.verdict === 'CORRECT' ? 0 : 1)
+  if (verdictDiff !== 0) return verdictDiff
+
+  const aAuditId = a.audit_record_id ?? Number.MAX_SAFE_INTEGER
+  const bAuditId = b.audit_record_id ?? Number.MAX_SAFE_INTEGER
+  if (aAuditId !== bAuditId) return aAuditId - bAuditId
+
+  return a.id.localeCompare(b.id)
+}
+
+function selectPreferredItemsBySampleId(rows: ReviewItem[], sampleIds: string[]): ReviewItem[] {
+  const preferredBySampleId = new Map<string, ReviewItem>()
+
+  for (const row of rows) {
+    const current = preferredBySampleId.get(row.sample_key)
+    if (!current || compareSampleIdSearchItems(row, current) < 0) {
+      preferredBySampleId.set(row.sample_key, row)
+    }
+  }
+
+  return sampleIds
+    .map((sampleId) => preferredBySampleId.get(sampleId))
+    .filter((item): item is ReviewItem => Boolean(item))
+}
+
+export async function fetchReviewItemsBySampleIds(
+  args: FetchReviewItemsBySampleIdsArgs,
+): Promise<ReviewItemsPageResult> {
+  const sampleIds = args.sampleIds.slice(0, SAMPLE_ID_SEARCH_LIMIT)
+  if (sampleIds.length === 0) {
+    return { items: [], next_after: null, has_more: false }
+  }
+
+  const rows: ReviewItem[] = []
+
+  for (let from = 0; from < sampleIds.length; from += SAMPLE_ID_SEARCH_CHUNK_SIZE) {
+    const chunk = sampleIds.slice(from, from + SAMPLE_ID_SEARCH_CHUNK_SIZE)
+    let query = supabase
+      .from('review_items')
+      .select(
+        'id,dataset_id,sample_row_id,sample_key,entity_type,audit_record_id,value,start_offset,end_offset,verdict,reason,suggested_label,replacement_value,status,decision,reviewer_note,decided_by,decided_at,version,updated_at,created_at',
+      )
+      .eq('dataset_id', args.datasetId)
+      .in('sample_key', chunk)
+
+    if (args.entityType) query = query.eq('entity_type', args.entityType)
+    if (args.labeledOnly) {
+      query = query.eq('status', 'completed').not('decision', 'is', null)
+    }
+
+    const { data, error } = await query
+      .order('sample_key', { ascending: true })
+      .order('audit_record_id', { ascending: true, nullsFirst: false })
+      .order('id', { ascending: true })
+
+    if (error) throw error
+    rows.push(...(data as ReviewItem[]))
+  }
+
+  return {
+    items: selectPreferredItemsBySampleId(rows, sampleIds),
+    next_after: null,
+    has_more: false,
+  }
 }
 
 export async function getReviewBundle(sampleId: string): Promise<ReviewBundle> {

@@ -15,9 +15,11 @@ import {
   countLabeledReviewItemsFiltered,
   countReviewItemsFiltered,
   fetchLabeledReviewItemsPage,
+  fetchReviewItemsBySampleIds,
   fetchReviewItemsPage,
   getReviewBundle,
   openSample,
+  parseSampleIdSearch,
   releaseSampleLock,
   submitReviewDecision,
   updateReviewSampleMask,
@@ -72,6 +74,7 @@ export type ReviewPageInfo = {
 export type ReviewWorkspaceFilters = {
   verdict?: ReviewItem['verdict'] | null
   search?: string | null
+  sampleIdSearch?: string | null
   pagePollingPaused?: boolean
 }
 
@@ -152,6 +155,22 @@ function createEmptyCounts(): DatasetReviewItemCounts {
   }
 }
 
+function createCountsFromItems(items: ReviewItem[]): DatasetReviewItemCounts {
+  const entityTypes = Array.from(new Set(items.map((item) => item.entity_type))).sort()
+
+  return {
+    filtered_total: items.length,
+    total: items.length,
+    pending: items.filter((item) => item.status === 'pending').length,
+    completed: items.filter((item) => item.status === 'completed').length,
+    skipped: items.filter((item) => item.status === 'skipped').length,
+    correct: items.filter((item) => item.verdict === 'CORRECT').length,
+    wrong_label: items.filter((item) => item.verdict === 'WRONG_LABEL').length,
+    unrealistic_value: items.filter((item) => item.verdict === 'UNREALISTIC_VALUE').length,
+    entity_types: entityTypes,
+  }
+}
+
 function createInitialPageInfo(): ReviewPageInfo {
   return {
     pageIndex: 1,
@@ -215,6 +234,7 @@ export function useReviewWorkspace(
 
   const verdictFilter = filters.verdict ?? null
   const searchFilter = filters.search?.trim() || null
+  const sampleIdSearchFilter = filters.sampleIdSearch?.trim() || null
   const pagePollingPaused = filters.pagePollingPaused === true
 
   const entityTypes = availableEntityTypes
@@ -276,6 +296,20 @@ export function useReviewWorkspace(
     setCountsStatus('loading')
 
     try {
+      if (sampleIdSearchFilter) {
+        const nextCounts = createCountsFromItems(allItemsRef.current)
+        setReviewCounts(nextCounts)
+        setAvailableEntityTypes(includeActiveEntityType(nextCounts.entity_types, activeEntityType))
+        setPageInfo((prev) => ({
+          ...prev,
+          filteredTotal: nextCounts.filtered_total,
+          hasMore: false,
+          nextCursor: null,
+        }))
+        setCountsStatus('ready')
+        return
+      }
+
       const countFiltered =
         mode === 'labeled' ? countLabeledReviewItemsFiltered : countReviewItemsFiltered
       const nextCounts = await countFiltered({
@@ -298,7 +332,7 @@ export function useReviewWorkspace(
     } finally {
       countsRefreshInFlightRef.current = false
     }
-  }, [activeEntityType, searchFilter, verdictFilter])
+  }, [activeEntityType, sampleIdSearchFilter, searchFilter, verdictFilter])
 
   // ── Internal helpers ───────────────────────────────────────────────
 
@@ -306,9 +340,11 @@ export function useReviewWorkspace(
     async (dataset: Dataset, options: LoadItemsOptions = {}) => {
       const requestId = loadRequestIdRef.current + 1
       loadRequestIdRef.current = requestId
-      const cursor = options.cursor ?? null
-      const pageIndex = options.pageIndex ?? 1
-      const previousCursors = options.previousCursors ?? []
+      const sampleIds = parseSampleIdSearch(sampleIdSearchFilter, dataset.source_key)
+      const isSampleIdSearch = sampleIds.length > 0
+      const cursor = isSampleIdSearch ? null : (options.cursor ?? null)
+      const pageIndex = isSampleIdSearch ? 1 : (options.pageIndex ?? 1)
+      const previousCursors = isSampleIdSearch ? [] : (options.previousCursors ?? [])
       const showLoading = options.showLoading ?? true
       const clearActive = options.clearActive ?? true
       const showNotice = options.showNotice ?? showLoading
@@ -316,21 +352,34 @@ export function useReviewWorkspace(
 
       if (showLoading) {
         setLoadingItems(true)
-        setNotice(mode === 'labeled' ? 'Loading labeled items...' : 'Loading review items...')
+        setNotice(
+          isSampleIdSearch
+            ? 'Loading sample IDs...'
+            : mode === 'labeled'
+              ? 'Loading labeled items...'
+              : 'Loading review items...',
+        )
       } else if (showNotice) {
         setNotice('Refreshing...')
       }
 
       try {
         const fetchPage = mode === 'labeled' ? fetchLabeledReviewItemsPage : fetchReviewItemsPage
-        const nextPage = await fetchPage({
-          datasetId: dataset.id,
-          limit: REVIEW_ITEMS_PAGE_SIZE,
-          after: cursor,
-          entityType: activeEntityType,
-          verdict: verdictFilter,
-          search: searchFilter,
-        })
+        const nextPage = isSampleIdSearch
+          ? await fetchReviewItemsBySampleIds({
+              datasetId: dataset.id,
+              sampleIds,
+              entityType: activeEntityType,
+              labeledOnly: mode === 'labeled',
+            })
+          : await fetchPage({
+              datasetId: dataset.id,
+              limit: REVIEW_ITEMS_PAGE_SIZE,
+              after: cursor,
+              entityType: activeEntityType,
+              verdict: verdictFilter,
+              search: searchFilter,
+            })
 
         if (
           loadRequestIdRef.current !== requestId ||
@@ -348,7 +397,11 @@ export function useReviewWorkspace(
           nextCursor: nextPage.next_after,
           hasMore: nextPage.has_more,
           previousCursors,
-          filteredTotal: showLoading ? null : prev.filteredTotal,
+          filteredTotal: isSampleIdSearch
+            ? nextPage.items.length
+            : showLoading
+              ? null
+              : prev.filteredTotal,
         }))
         if (clearActive) {
           setSamplesById(new Map())
@@ -357,10 +410,17 @@ export function useReviewWorkspace(
           setActiveItemReadOnly(false)
         }
         setLastSyncedAt(new Date().toISOString())
+        if (isSampleIdSearch) {
+          const nextCounts = createCountsFromItems(nextPage.items)
+          setReviewCounts(nextCounts)
+          setAvailableEntityTypes(includeActiveEntityType(nextCounts.entity_types, activeEntityType))
+          setCountsStatus('ready')
+        } else {
+          void refreshCounts()
+        }
         if (showNotice) {
           setNotice(showLoading ? '' : 'Updated just now.')
         }
-        void refreshCounts()
         return nextPage.items
       } catch (err) {
         if (
@@ -377,7 +437,7 @@ export function useReviewWorkspace(
         }
       }
     },
-    [activeEntityType, refreshCounts, searchFilter, verdictFilter],
+    [activeEntityType, refreshCounts, sampleIdSearchFilter, searchFilter, verdictFilter],
   )
 
   const refreshCurrentPageInternal = useCallback(
@@ -759,11 +819,21 @@ export function useReviewWorkspace(
           sourceText: preview.sourceText,
           privacyMask: preview.privacyMask,
         })
-        setAllItems((prev) => patchReviewItem(prev, result.item))
+        const nextItems = patchReviewItem(allItemsRef.current, result.item)
+        allItemsRef.current = nextItems
+        setAllItems(nextItems)
         setActiveItem((prev) => (prev?.id === result.item.id ? result.item : prev))
         setSamplesById((prev) => new Map(prev).set(result.sample.id, result.sample))
         setActiveSample((prev) => (prev?.id === result.sample.id ? result.sample : prev))
-        void refreshCounts()
+        if (sampleIdSearchFilter) {
+          const nextCounts = createCountsFromItems(nextItems)
+          setReviewCounts(nextCounts)
+          setAvailableEntityTypes(includeActiveEntityType(nextCounts.entity_types, activeEntityType))
+          setPageInfo((prev) => ({ ...prev, filteredTotal: nextCounts.filtered_total }))
+          setCountsStatus('ready')
+        } else {
+          void refreshCounts()
+        }
         setNotice('Saved. Lock released automatically.')
         return true
       } catch (err) {
@@ -773,7 +843,7 @@ export function useReviewWorkspace(
         setSaving(false)
       }
     },
-    [refreshCounts],
+    [activeEntityType, refreshCounts, sampleIdSearchFilter],
   )
 
   const saveSampleMask = useCallback(
@@ -801,13 +871,23 @@ export function useReviewWorkspace(
           }
         }
 
+        const nextItems = allItemsRef.current.map((current) =>
+          current.id === item.id ? markSubmitted(current) : current,
+        )
+        allItemsRef.current = nextItems
         setSamplesById((prev) => new Map(prev).set(updated.id, updated))
         setActiveSample((prev) => (prev?.id === updated.id ? updated : prev))
-        setAllItems((prev) =>
-          prev.map((current) => (current.id === item.id ? markSubmitted(current) : current)),
-        )
+        setAllItems(nextItems)
         setActiveItem((prev) => (prev?.id === item.id ? markSubmitted(prev) : prev))
-        void refreshCounts()
+        if (sampleIdSearchFilter) {
+          const nextCounts = createCountsFromItems(nextItems)
+          setReviewCounts(nextCounts)
+          setAvailableEntityTypes(includeActiveEntityType(nextCounts.entity_types, activeEntityType))
+          setPageInfo((prev) => ({ ...prev, filteredTotal: nextCounts.filtered_total }))
+          setCountsStatus('ready')
+        } else {
+          void refreshCounts()
+        }
         setNotice('Sample text and labels updated.')
       } catch (err) {
         setNotice(formatSupabaseError(err))
@@ -816,7 +896,7 @@ export function useReviewWorkspace(
         setSaving(false)
       }
     },
-    [refreshCounts, session.user.id],
+    [activeEntityType, refreshCounts, sampleIdSearchFilter, session.user.id],
   )
 
   return {
