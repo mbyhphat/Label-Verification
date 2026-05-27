@@ -44,7 +44,7 @@ export function ExportButton({ dataset }: ExportButtonProps) {
     setLoading('dataset')
     setError('')
     try {
-      const payload = await exportReviewedDataset(dataset.id)
+      const payload = await exportReviewedDataset(dataset)
       downloadJson(buildExportFilename(dataset, 'reviewed'), payload)
     } catch (caught) {
       setError(formatSupabaseError(caught))

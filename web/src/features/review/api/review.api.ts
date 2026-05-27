@@ -294,16 +294,15 @@ export async function updateReviewSampleMask(args: {
   return data
 }
 
-export async function exportReviewedDataset(datasetId: string): Promise<JsonRecord[]> {
+export async function exportReviewedDataset(dataset: Dataset): Promise<JsonRecord[]> {
   // Paginate to avoid the default PostgREST 1000-row cap
   const rows: ReviewSample[] = []
   let from = 0
-
   while (true) {
     const { data, error } = await supabase
       .from('review_samples')
       .select('*')
-      .eq('dataset_id', datasetId)
+      .eq('dataset_id', dataset.id)
       .order('sample_index', { ascending: true })
       .range(from, from + SAMPLE_EXPORT_PAGE_SIZE - 1)
 
@@ -315,6 +314,7 @@ export async function exportReviewedDataset(datasetId: string): Promise<JsonReco
 
   return rows.map((sample) => ({
     ...(isJsonRecord(sample.raw_output) ? sample.raw_output : {}),
+    sample_id: sample.sample_key,
     source_text: sample.current_source_text,
     language: sample.language,
     privacy_mask: sample.current_privacy_mask,
