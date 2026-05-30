@@ -149,7 +149,11 @@ const LABEL_PALETTE = [
 type LabelColors = (typeof LABEL_PALETTE)[number]
 
 const LABEL_SELECT_TRIGGER_CLASS_NAME =
-  'w-52 max-w-full border-border/80 bg-background/95 px-3 text-sm font-semibold text-foreground shadow-sm hover:border-primary/50 hover:bg-background focus-visible:border-primary/70 focus-visible:ring-primary/25 data-placeholder:text-muted-foreground'
+  'w-60 max-w-full border-border/80 bg-background/95 px-3.5 text-[15px] font-bold leading-none text-foreground shadow-sm hover:border-primary/50 hover:bg-background focus-visible:border-primary/70 focus-visible:ring-primary/25 data-[size=sm]:h-9 data-placeholder:text-muted-foreground'
+const LABEL_SELECT_CONTENT_CLASS_NAME =
+  'min-w-60 border border-border/70 bg-popover/95 p-1 shadow-xl shadow-black/30'
+const LABEL_SELECT_ITEM_CLASS_NAME =
+  'py-2 pr-9 pl-2.5 text-[15px] font-semibold text-foreground'
 
 function sortLabelOptions(labels: string[]): string[] {
   return [...labels].sort((a, b) =>
@@ -610,7 +614,7 @@ export function SampleMaskEditor({
         {/* ── Source text with colored, labeled spans ── */}
         <div ref={sourceEditorRef} className="flex flex-col gap-3">
           <div className="flex items-center justify-between gap-2">
-            <span className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/70">
+            <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
               Source text
             </span>
             <Button
@@ -631,7 +635,7 @@ export function SampleMaskEditor({
               value={sourceText}
               disabled={!canEdit}
               spellCheck={false}
-              className="max-h-80 min-h-64 resize-y border-border/70 bg-background/80 font-mono text-sm leading-7 text-foreground"
+              className="max-h-80 min-h-64 resize-y border-border/70 bg-background/80 font-mono text-[15px] leading-7 text-foreground"
               onChange={handleSourceTextChange}
               onCompositionStart={handleSourceTextCompositionStart}
               onCompositionEnd={handleSourceTextCompositionEnd}
@@ -643,7 +647,7 @@ export function SampleMaskEditor({
               aria-label="Sample source text — select text to tag PII"
               className={cn(
                 'max-h-64 overflow-y-auto rounded-lg border border-border/70 bg-muted/20 p-4',
-                'whitespace-pre-wrap break-words text-sm leading-8 text-foreground',
+                'whitespace-pre-wrap break-words text-[15px] leading-8 text-foreground',
                 'selection:bg-primary/20 selection:text-foreground',
                 'transition-colors duration-150 focus-within:border-primary/40',
               )}
@@ -680,7 +684,7 @@ export function SampleMaskEditor({
                           {sourceText.slice(segment.start, segment.end)}
                           <span
                             data-selection-ignore="true"
-                            className="ml-1 select-none rounded-[3px] px-[3px] align-middle text-[9px] font-bold uppercase tracking-wider opacity-70"
+                            className="ml-1.5 select-none rounded-[4px] bg-background/45 px-1.5 py-0.5 align-middle text-[10.5px] font-extrabold uppercase leading-none tracking-wide text-foreground/85 shadow-sm"
                             aria-hidden="true"
                           >
                             {segment.entry.label}
@@ -695,7 +699,7 @@ export function SampleMaskEditor({
         </div>
 
         {/* ── Main editing area ── */}
-        <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_240px]">
+        <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_280px]">
 
           {/* Action panel — context-sensitive */}
           <div
@@ -712,7 +716,7 @@ export function SampleMaskEditor({
                 <span className="flex h-10 w-10 items-center justify-center rounded-full border border-primary/20 bg-primary/10 text-primary shadow-sm">
                   <MousePointer2 className="h-5 w-5" aria-hidden="true" />
                 </span>
-                <p className="max-w-[280px] text-[13px] font-medium leading-relaxed text-foreground/85">
+                <p className="max-w-[300px] text-sm font-medium leading-relaxed text-foreground/90">
                   Select text above to tag it, or click a highlighted span to edit it.
                 </p>
               </div>
@@ -722,11 +726,11 @@ export function SampleMaskEditor({
             {actionMode === 'selection' && (
               <div className="flex flex-col gap-3 p-3">
                 <div className="flex min-w-0 items-center gap-1.5">
-                  <span className="shrink-0 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+                  <span className="shrink-0 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
                     Selected
                   </span>
                   <span
-                    className="min-w-0 truncate rounded-md bg-background/60 px-2 py-1 font-mono text-xs text-foreground"
+                    className="min-w-0 truncate rounded-md bg-background/70 px-2.5 py-1.5 font-mono text-sm text-foreground"
                     title={selectedText}
                   >
                     "{textPreview(selectedText)}"
@@ -735,7 +739,7 @@ export function SampleMaskEditor({
 
                 <div className="flex flex-wrap items-end gap-2.5">
                   <div className="flex min-w-0 flex-col gap-1">
-                    <span className="text-xs font-medium text-muted-foreground">Tag as</span>
+                    <span className="text-sm font-semibold text-muted-foreground">Tag as</span>
                     <Select
                       value={effectiveSelectedLabel}
                       onValueChange={(value) => {
@@ -745,20 +749,20 @@ export function SampleMaskEditor({
                     >
                       <SelectTrigger size="sm" className={LABEL_SELECT_TRIGGER_CLASS_NAME}>
                         <span
-                          className={cn('h-2 w-2 shrink-0 rounded-full', selectedLabelColors.dot)}
+                          className={cn('h-2.5 w-2.5 shrink-0 rounded-full', selectedLabelColors.dot)}
                           aria-hidden="true"
                         />
                         <SelectValue className="min-w-0 truncate" />
                       </SelectTrigger>
-                      <SelectContent className="min-w-44">
+                      <SelectContent className={LABEL_SELECT_CONTENT_CLASS_NAME}>
                         <SelectGroup>
                           {sortedLabelOptions.map((label) => {
                             const c = getLabelColors(label)
                             return (
-                              <SelectItem key={label} value={label}>
-                                <span className="flex items-center gap-1.5">
+                              <SelectItem key={label} value={label} className={LABEL_SELECT_ITEM_CLASS_NAME}>
+                                <span className="flex items-center gap-2">
                                   <span
-                                    className={cn('h-2 w-2 shrink-0 rounded-full', c.dot)}
+                                    className={cn('h-2.5 w-2.5 shrink-0 rounded-full', c.dot)}
                                     aria-hidden="true"
                                   />
                                   {label}
@@ -799,12 +803,12 @@ export function SampleMaskEditor({
                       className={cn('h-2.5 w-2.5 shrink-0 rounded-full', activeEntryColors.dot)}
                       aria-hidden="true"
                     />
-                    <span className="shrink-0 text-xs font-bold text-foreground">
+                    <span className="shrink-0 text-sm font-bold text-foreground">
                       {selectedEntry.label ?? 'Unlabeled'}
                     </span>
                     <span className="text-border" aria-hidden="true">/</span>
                     <span
-                      className="min-w-0 truncate font-mono text-xs text-muted-foreground"
+                      className="min-w-0 truncate font-mono text-sm text-muted-foreground"
                       title={selectedEntry.value}
                     >
                       {textPreview(selectedEntry.value)}
@@ -825,7 +829,7 @@ export function SampleMaskEditor({
 
                 <div className="flex flex-wrap items-end gap-2.5">
                   <div className="flex min-w-0 flex-col gap-1">
-                    <span className="text-xs font-medium text-muted-foreground">Change label</span>
+                    <span className="text-sm font-semibold text-muted-foreground">Change label</span>
                     <Select
                       value={effectiveSelectedLabel}
                       onValueChange={(value) => {
@@ -839,20 +843,20 @@ export function SampleMaskEditor({
                     >
                       <SelectTrigger size="sm" className={LABEL_SELECT_TRIGGER_CLASS_NAME}>
                         <span
-                          className={cn('h-2 w-2 shrink-0 rounded-full', selectedLabelColors.dot)}
+                          className={cn('h-2.5 w-2.5 shrink-0 rounded-full', selectedLabelColors.dot)}
                           aria-hidden="true"
                         />
                         <SelectValue className="min-w-0 truncate" />
                       </SelectTrigger>
-                      <SelectContent className="min-w-44">
+                      <SelectContent className={LABEL_SELECT_CONTENT_CLASS_NAME}>
                         <SelectGroup>
                           {sortedLabelOptions.map((label) => {
                             const c = getLabelColors(label)
                             return (
-                              <SelectItem key={label} value={label}>
-                                <span className="flex items-center gap-1.5">
+                              <SelectItem key={label} value={label} className={LABEL_SELECT_ITEM_CLASS_NAME}>
+                                <span className="flex items-center gap-2">
                                   <span
-                                    className={cn('h-2 w-2 shrink-0 rounded-full', c.dot)}
+                                    className={cn('h-2.5 w-2.5 shrink-0 rounded-full', c.dot)}
                                     aria-hidden="true"
                                   />
                                   {label}
@@ -914,14 +918,14 @@ export function SampleMaskEditor({
           </div>
 
           {/* Span list */}
-          <div className="flex min-h-0 flex-col gap-2 rounded-lg border border-border/60 bg-card/50 p-2">
+          <div className="flex min-h-0 flex-col gap-2 rounded-lg border border-border/60 bg-card/50 p-3">
             <div className="flex items-center justify-between gap-2 px-1">
-              <span className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+              <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
                 Spans
               </span>
               <Badge
                 variant="outline"
-                className="h-4 rounded-full px-1.5 text-[9px] tabular-nums"
+                className="h-5 rounded-full px-2 text-[11px] tabular-nums"
                 aria-label={`${draftMask.length} spans`}
               >
                 {draftMask.length}
@@ -949,7 +953,7 @@ export function SampleMaskEditor({
                       aria-label={`Select ${entry.label ?? 'span'}: ${entry.value ?? ''}`}
                       aria-pressed={isSelected}
                       className={cn(
-                        'group flex min-w-0 cursor-pointer items-center gap-2 rounded-md border px-2.5 py-2',
+                        'group flex min-w-0 cursor-pointer items-center gap-2.5 rounded-md border px-3 py-2.5',
                         'transition-all duration-150 ease-out',
                         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-1',
                         isSelected
@@ -964,22 +968,22 @@ export function SampleMaskEditor({
                       }}
                     >
                       <span
-                        className={cn('h-1.5 w-1.5 shrink-0 rounded-full', colors.dot)}
+                        className={cn('h-2 w-2 shrink-0 rounded-full', colors.dot)}
                         aria-hidden="true"
                       />
                       <span className="flex min-w-0 flex-1 flex-col">
                         <span
                           className={cn(
-                            'truncate text-[11px] font-bold uppercase tracking-wide',
-                            isSelected ? 'text-foreground' : 'text-foreground/80',
+                            'truncate text-xs font-bold uppercase tracking-wide',
+                            isSelected ? 'text-foreground' : 'text-foreground/90',
                           )}
                         >
                           {entry.label ?? 'Unlabeled'}
                         </span>
                         <span
                           className={cn(
-                            'truncate font-mono text-[11px]',
-                            isSelected ? 'text-muted-foreground' : 'text-muted-foreground/60',
+                            'truncate font-mono text-xs',
+                            isSelected ? 'text-muted-foreground' : 'text-muted-foreground/75',
                           )}
                         >
                           {textPreview(entry.value, '—')}
